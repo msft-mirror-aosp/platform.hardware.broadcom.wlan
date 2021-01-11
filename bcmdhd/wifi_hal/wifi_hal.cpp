@@ -94,19 +94,22 @@ static wifi_error wifi_configure_nd_offload(wifi_interface_handle iface, u8 enab
 
 static void wifi_cleanup_dynamic_ifaces(wifi_handle handle);
 typedef enum wifi_attr {
-    ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET,
-    ANDR_WIFI_ATTRIBUTE_FEATURE_SET,
-    ANDR_WIFI_ATTRIBUTE_PNO_RANDOM_MAC_OUI,
-    ANDR_WIFI_ATTRIBUTE_NODFS_SET,
-    ANDR_WIFI_ATTRIBUTE_COUNTRY,
-    ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE,
-    ANDR_WIFI_ATTRIBUTE_TCPACK_SUP_VALUE,
-    ANDR_WIFI_ATTRIBUTE_LATENCY_MODE,
-    ANDR_WIFI_ATTRIBUTE_RANDOM_MAC,
-    ANDR_WIFI_ATTRIBUTE_TX_POWER_SCENARIO,
-    ANDR_WIFI_ATTRIBUTE_THERMAL_MITIGATION,
-    ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW
-    // Add more attribute here
+    ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
+    ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET            = 1,
+    ANDR_WIFI_ATTRIBUTE_FEATURE_SET                = 2,
+    ANDR_WIFI_ATTRIBUTE_PNO_RANDOM_MAC_OUI         = 3,
+    ANDR_WIFI_ATTRIBUTE_NODFS_SET                  = 4,
+    ANDR_WIFI_ATTRIBUTE_COUNTRY                    = 5,
+    ANDR_WIFI_ATTRIBUTE_ND_OFFLOAD_VALUE           = 6,
+    ANDR_WIFI_ATTRIBUTE_TCPACK_SUP_VALUE           = 7,
+    ANDR_WIFI_ATTRIBUTE_LATENCY_MODE               = 8,
+    ANDR_WIFI_ATTRIBUTE_RANDOM_MAC                 = 9,
+    ANDR_WIFI_ATTRIBUTE_TX_POWER_SCENARIO          = 10,
+    ANDR_WIFI_ATTRIBUTE_THERMAL_MITIGATION         = 11,
+    ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW  = 12,
+    ANDR_WIFI_ATTRIBUTE_VOIP_MODE                  = 13,
+     // Add more attribute here
+    ANDR_WIFI_ATTRIBUTE_MAX
 } wifi_attr_t;
 
 enum wifi_rssi_monitor_attr {
@@ -155,6 +158,18 @@ enum wifi_chavoid_attr {
     CHAVOID_ATTRIBUTE_MANDATORY = 6,
     /* Add more attributes here */
     CHAVOID_ATTRIBUTE_MAX
+};
+
+enum wifi_multista_attr {
+    MULTISTA_ATTRIBUTE_PRIM_CONN_IFACE,
+    MULTISTA_ATTRIBUTE_USE_CASE,
+    /* Add more attributes here */
+    MULTISTA_ATTRIBUTE_MAX
+};
+
+enum multista_request_type {
+    SET_PRIMARY_CONNECTION,
+    SET_USE_CASE
 };
 
 /* Initialize/Cleanup */
@@ -288,9 +303,43 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_virtual_interface_create = wifi_virtual_interface_create;
     fn->wifi_virtual_interface_delete = wifi_virtual_interface_delete;
     fn->wifi_set_coex_unsafe_channels = wifi_set_coex_unsafe_channels;
+    fn->wifi_twt_get_capability = twt_get_capability;
+    fn->wifi_twt_register_handler = twt_register_handler;
+    fn->wifi_twt_setup_request = twt_setup_request;
+    fn->wifi_twt_teardown_request = twt_teardown_request;
+    fn->wifi_twt_info_frame_request = twt_info_frame_request;
+    fn->wifi_twt_get_stats = twt_get_stats;
+    fn->wifi_twt_clear_stats = twt_clear_stats;
+    fn->wifi_multi_sta_set_primary_connection = wifi_multi_sta_set_primary_connection;
+    fn->wifi_multi_sta_set_use_case = wifi_multi_sta_set_use_case;
+    fn->wifi_set_voip_mode = wifi_set_voip_mode;
 
     return WIFI_SUCCESS;
 }
+#ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
+#include <google_wifi_firmware_config_version_info.h>
+
+static void
+wifi_check_valid_ota_version(wifi_interface_handle handle)
+{
+    bool valid = false;
+    int32_t default_ver = get_google_default_vendor_wifi_config_version();
+    int32_t ota_ver = get_google_ota_updated_wifi_config_version();
+    ALOGE("default_ver %d, ota_ver %d", default_ver, ota_ver);
+
+    if (ota_ver > default_ver) {
+        valid = verify_google_ota_updated_wifi_config_integrity();
+    }
+
+    if (valid) {
+        ALOGE("Valid config files of OTA.");
+        wifi_hal_ota_update(handle, ota_ver);
+    }
+    else {
+        ALOGE("Do not valid config files of OTA.");
+    }
+}
+#endif // GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
 
 hal_info *halInfo = NULL;
 wifi_error wifi_pre_initialize(void)
@@ -343,7 +392,7 @@ wifi_error wifi_pre_initialize(void)
     }
 
     /* Set the socket buffer size */
-    if (nl_socket_set_buffer_size(event_sock, (512*1024), 0) < 0) {
+    if (nl_socket_set_buffer_size(event_sock, (2*1024*1024), 0) < 0) {
         ALOGE("Could not set size for event_sock: %s",
                strerror(errno));
     } else {
@@ -417,6 +466,9 @@ wifi_error wifi_pre_initialize(void)
     if (wlan0Handle != NULL) {
         ALOGE("Calling preInit");
         if (!get_halutil_mode()) {
+#ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
+            (void) wifi_check_valid_ota_version(wlan0Handle);
+#endif // GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
             result = wifi_hal_preInit(wlan0Handle);
             if (result != WIFI_SUCCESS) {
                 ALOGE("wifi_hal_preInit failed");
@@ -532,9 +584,11 @@ static void internal_cleaned_up_handler(wifi_handle handle)
 
     ALOGI("Internal cleanup completed");
 }
+
 void wifi_internal_module_cleanup()
 {
     nan_deinit_handler();
+    twt_deinit_handler();
 }
 
 void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
@@ -586,7 +640,6 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     info->clean_up = true;
     /* calling internal modules or cleanup */
     wifi_internal_module_cleanup();
-    ALOGI("wifi nan internal clean up done");
     pthread_mutex_lock(&info->cb_lock);
 
     int bad_commands = 0;
@@ -1445,7 +1498,8 @@ static int wifi_get_multicast_id(wifi_handle handle, const char *name, const cha
 
 static bool is_wifi_interface(const char *name)
 {
-    if (strncmp(name, "wlan", 4) != 0 && strncmp(name, "swlan", 5) != 0 && strncmp(name, "p2p", 3) != 0) {
+    if (strncmp(name, "wlan", 4) != 0 && strncmp(name, "swlan", 5) != 0 &&
+        strncmp(name, "p2p", 3) != 0 && strncmp(name, "aware", 5) != 0) {
         /* not a wifi interface; ignore it */
         return false;
     } else {
@@ -1630,6 +1684,29 @@ wifi_error wifi_get_iface_name(wifi_interface_handle handle, char *name, size_t 
     strncpy(name, info->name, (IFNAMSIZ));
     name[IFNAMSIZ - 1] = '\0';
     return WIFI_SUCCESS;
+}
+
+wifi_interface_handle wifi_get_iface_handle(wifi_handle handle, char *name)
+{
+    char buf[EVENT_BUF_SIZE];
+    wifi_interface_handle *ifaceHandles;
+    int numIfaceHandles;
+    wifi_interface_handle ifHandle;
+
+    wifi_error res = wifi_get_ifaces((wifi_handle)handle, &numIfaceHandles, &ifaceHandles);
+    if (res < 0) {
+        return NULL;
+    }
+    for (int i = 0; i < numIfaceHandles; i++) {
+        if (wifi_get_iface_name(ifaceHandles[i], buf, sizeof(buf)) == WIFI_SUCCESS) {
+            if (strcmp(buf, name) == 0) {
+                ALOGI("found interface %s\n", buf);
+                ifHandle = ifaceHandles[i];
+                return ifHandle;
+            }
+        }
+    }
+    return NULL;
 }
 
 wifi_error wifi_get_supported_feature_set(wifi_interface_handle handle, feature_set *set)
@@ -2421,3 +2498,167 @@ wifi_error wifi_virtual_interface_delete(wifi_handle handle, const char* ifname)
     return ret;
 }
 /////////////////////////////////////////////////////////////////////////////
+
+class MultiStaConfig : public WifiCommand {
+    wifi_multi_sta_use_case mUseCase;
+    int mReqType;
+
+public:
+    MultiStaConfig(wifi_interface_handle handle)
+    : WifiCommand("MultiStaConfig", handle, 0), mReqType(SET_PRIMARY_CONNECTION)
+    {
+    }
+    MultiStaConfig(wifi_interface_handle handle, wifi_multi_sta_use_case use_case)
+    : WifiCommand("MultiStaConfig", handle, 0), mUseCase(use_case), mReqType(SET_USE_CASE)
+    {
+        mUseCase = use_case;
+    }
+
+    int createRequest(WifiRequest& request) {
+        if (mReqType == SET_PRIMARY_CONNECTION) {
+            ALOGI("\n%s: MultiSta set primary connection\n", __FUNCTION__);
+            return createSetPrimaryConnectionRequest(request);
+        } else if (mReqType == SET_USE_CASE) {
+            ALOGI("\n%s: MultiSta set use case\n", __FUNCTION__);
+            return createSetUsecaseRequest(request);
+        } else {
+            ALOGE("\n%s Unknown MultiSta request\n", __FUNCTION__);
+            return WIFI_ERROR_NOT_SUPPORTED;
+        }
+        return WIFI_SUCCESS;
+    }
+
+    int createSetPrimaryConnectionRequest(WifiRequest& request) {
+        int result = request.create(GOOGLE_OUI, WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION);
+        if (result < 0) {
+            return result;
+        }
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        request.attr_end(data);
+
+        return result;
+    }
+
+    int createSetUsecaseRequest(WifiRequest& request) {
+        int result = request.create(GOOGLE_OUI, WIFI_SUBCMD_SET_MULTISTA_USE_CASE);
+        if (result < 0) {
+            return result;
+        }
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        result = request.put_u32(MULTISTA_ATTRIBUTE_USE_CASE, mUseCase);
+        if (result < 0) {
+            ALOGE("failed to put MULTISTA_ATTRIBUTE_USE_CASE = %d; result = %d", mUseCase, result);
+            goto exit;
+        }
+
+exit:   request.attr_end(data);
+        return result;
+    }
+
+    int start() {
+        WifiRequest request(familyId(), ifaceId());
+        int result = createRequest(request);
+        if (result < 0) {
+            return result;
+        }
+        result = requestResponse(request);
+        if (result < 0) {
+            ALOGI("Request Response failed for MultiSta, result = %d", result);
+            return result;
+        }
+        ALOGI("Done!");
+        return result;
+    }
+protected:
+    virtual int handleResponse(WifiEvent& reply) {
+        ALOGD("Request complete!");
+        /* Nothing to do on response! */
+        return NL_SKIP;
+    }
+};
+
+wifi_error wifi_multi_sta_set_primary_connection(wifi_handle handle, wifi_interface_handle iface)
+{
+    wifi_error ret = WIFI_SUCCESS;
+
+    if (!handle || !iface) {
+        ALOGE("%s: Error wifi_handle NULL or invalid wifi interface handle\n", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    ALOGD("Setting Multista primary connection = %p\n", iface);
+    MultiStaConfig *cmd = new MultiStaConfig(iface);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    ret = (wifi_error)cmd->start();
+    cmd->releaseRef();
+    return ret;
+}
+
+wifi_error wifi_multi_sta_set_use_case(wifi_handle handle, wifi_multi_sta_use_case use_case)
+{
+    int numIfaceHandles = 0;
+    wifi_error ret = WIFI_SUCCESS;
+    wifi_interface_handle *ifaceHandles = NULL;
+    wifi_interface_handle wlan0Handle;
+
+    if (!handle) {
+        ALOGE("%s: Error wifi_handle NULL\n", __FUNCTION__);
+        return WIFI_ERROR_UNKNOWN;
+    }
+
+    if (!(use_case >= WIFI_DUAL_STA_TRANSIENT_PREFER_PRIMARY &&
+	    use_case <= WIFI_DUAL_STA_NON_TRANSIENT_UNBIASED)) {
+        ALOGE("%s: Invalid  multi_sta usecase %d\n", __FUNCTION__, use_case);
+        return WIFI_ERROR_INVALID_ARGS;
+    }
+
+    wlan0Handle = wifi_get_wlan_interface((wifi_handle)handle, ifaceHandles, numIfaceHandles);
+    ALOGD("Setting Multista usecase = %d\n", use_case);
+    MultiStaConfig *cmd = new MultiStaConfig(wlan0Handle, use_case);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    ret = (wifi_error)cmd->start();
+    cmd->releaseRef();
+    return ret;
+}
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+class SetVoipModeCommand : public WifiCommand {
+
+private:
+    wifi_voip_mode mMode;
+public:
+    SetVoipModeCommand(wifi_interface_handle handle, wifi_voip_mode mode)
+        : WifiCommand("SetVoipModeCommand", handle, 0) {
+        mMode = mode;
+    }
+    virtual int create() {
+        int ret;
+
+        ret = mMsg.create(GOOGLE_OUI, WIFI_SUBCMD_CONFIG_VOIP_MODE);
+        if (ret < 0) {
+            ALOGE("Can't create message to send to driver - %d", ret);
+            return ret;
+        }
+
+        nlattr *data = mMsg.attr_start(NL80211_ATTR_VENDOR_DATA);
+        ret = mMsg.put_u32(ANDR_WIFI_ATTRIBUTE_VOIP_MODE, mMode);
+        ALOGE("mMode - %d", mMode);
+        if (ret < 0) {
+	    ALOGE("Failed to set voip mode %d\n", mMode);
+	    return ret;
+        }
+
+	ALOGI("Successfully configured voip mode %d\n", mMode);
+        mMsg.attr_end(data);
+        return WIFI_SUCCESS;
+    }
+};
+
+wifi_error wifi_set_voip_mode(wifi_interface_handle handle, wifi_voip_mode mode)
+{
+    ALOGD("Setting VOIP mode, halHandle = %p Mode = %d\n", handle, mode);
+    SetVoipModeCommand command(handle, mode);
+    return (wifi_error) command.requestResponse();
+}
