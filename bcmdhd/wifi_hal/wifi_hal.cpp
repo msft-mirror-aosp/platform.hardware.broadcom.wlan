@@ -65,7 +65,7 @@
 
 #define WIFI_HAL_CMD_SOCK_PORT       644
 #define WIFI_HAL_EVENT_SOCK_PORT     645
-#define MAX_VIRTUAL_IFACES           4
+#define MAX_VIRTUAL_IFACES           5
 
 /*
  * Defines for wifi_wait_for_driver_ready()
@@ -1655,6 +1655,11 @@ wifi_error wifi_clear_iface_hal_info(wifi_handle handle, const char* ifname)
             break;
         }
         i++;
+    }
+    if (i < info->num_interfaces) {
+        for (int j = i; j < info->num_interfaces; j++) {
+            info->interfaces[j] = info->interfaces[j+1];
+        }
     }
     return WIFI_SUCCESS;
 }
