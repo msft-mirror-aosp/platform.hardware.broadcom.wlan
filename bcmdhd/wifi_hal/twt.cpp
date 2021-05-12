@@ -59,6 +59,11 @@ twt_hal_info_t twt_info;
 #define TWT_HANDLE(twt_info)                  ((twt_info).twt_handle)
 #define GET_TWT_HANDLE(twt_info)              ((TwtHandle *)twt_info.twt_handle)
 
+#define WL_TWT_CAP_FLAGS_REQ_SUPPORT    (1u << 0u)
+#define WL_TWT_CAP_FLAGS_RESP_SUPPORT   (1u << 1u)
+#define WL_TWT_CAP_FLAGS_BTWT_SUPPORT   (1u << 2u)
+#define WL_TWT_CAP_FLAGS_FLEX_SUPPORT   (1u << 3u)
+
 class TwtHandle
 {
     public:
@@ -335,6 +340,16 @@ public:
         return ret;
     }
 
+private:
+    TwtCapability parseTwtCap(uint32_t twt_peer_cap) {
+        TwtCapability cap;
+        cap.requester_supported = (twt_peer_cap & WL_TWT_CAP_FLAGS_REQ_SUPPORT) ? 1 : 0;
+        cap.responder_supported = (twt_peer_cap & WL_TWT_CAP_FLAGS_RESP_SUPPORT) ? 1 : 0;
+        cap.broadcast_twt_supported = (twt_peer_cap & WL_TWT_CAP_FLAGS_BTWT_SUPPORT) ? 1 : 0;
+        cap.flexibile_twt_supported = (twt_peer_cap & WL_TWT_CAP_FLAGS_FLEX_SUPPORT) ? 1 : 0;
+        return cap;
+    }
+
 protected:
     virtual int handleResponse(WifiEvent& reply) {
 
@@ -347,14 +362,33 @@ protected:
 
         int id = reply.get_vendor_id();
         int subcmd = reply.get_vendor_subcmd();
+        uint32_t twt_device_cap, twt_peer_cap;
 
-        void *data = reply.get_vendor_data();
+        nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len,
-                sizeof(*mCapabilities));
+        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        if (data == NULL || len == 0) {
+            ALOGE("no vendor data in GetTwtCapabilitiesCommand response; ignoring it\n");
+            return NL_SKIP;
+        }
 
-        memcpy(mCapabilities, data, min(len, (int) sizeof(*mCapabilities)));
+        for (nl_iterator it(data); it.has_next(); it.next()) {
+            switch (it.get_type()) {
+                case TWT_ATTRIBUTE_DEVICE_CAP:
+                    twt_device_cap = it.get_u32();
+                    mCapabilities->device_capability = parseTwtCap(twt_device_cap);
+                    break;
+                case TWT_ATTRIBUTE_PEER_CAP:
+                    twt_peer_cap = it.get_u32();
+                    mCapabilities->peer_capability = parseTwtCap(twt_peer_cap);
+                    break;
+                default:
+                    ALOGE("Ignoring invalid attribute type = %d, size = %d\n",
+                            it.get_type(), it.get_len());
+                    break;
+            }
+        }
 
         ALOGE("Out GetTwtCapabilitiesCommand::handleResponse\n");
         return NL_OK;
@@ -426,13 +460,47 @@ protected:
         int id = reply.get_vendor_id();
         int subcmd = reply.get_vendor_subcmd();
 
-        void *data = reply.get_vendor_data();
+        nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len,
-                sizeof(*mStats));
+        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        if (data == NULL || len == 0) {
+            ALOGE("no vendor data in GetTwtStatsCommand response; ignoring it\n");
+            return NL_SKIP;
+        }
 
-        memcpy(mStats, data, min(len, (int) sizeof(*mStats)));
+        for (nl_iterator it(data); it.has_next(); it.next()) {
+            switch (it.get_type()) {
+                case TWT_ATTRIBUTE_CONFIG_ID:
+                    mStats->config_id = it.get_u8();
+                    break;
+                case TWT_ATTRIBUTE_AVG_PKT_NUM_TX:
+                    mStats->avg_pkt_num_tx = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_AVG_PKT_NUM_RX:
+                    mStats->avg_pkt_num_rx = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_AVG_PKT_SIZE_TX:
+                    mStats->avg_tx_pkt_size = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_AVG_PKT_SIZE_RX:
+                    mStats->avg_rx_pkt_size = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_AVG_EOSP_DUR:
+                    mStats->avg_eosp_dur_us = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_EOSP_COUNT:
+                    mStats->eosp_count = it.get_u32();
+                    break;
+                case TWT_ATTRIBUTE_NUM_SP:
+                    mStats->num_sp = it.get_u32();
+                    break;
+                default:
+                    ALOGE("Ignoring invalid attribute type = %d, size = %d\n",
+                            it.get_type(), it.get_len());
+                    break;
+            }
+        }
 
         return NL_OK;
     }
