@@ -1931,7 +1931,7 @@ class OtaUpdateCommand : public WifiCommand
 wifi_error read_ota_file(char* file, char** buffer, uint32_t* size)
 {
     FILE* fp = NULL;
-    int file_size, count;
+    int file_size;
     char* buf;
     fp = fopen(file, "r");
 
@@ -1950,7 +1950,7 @@ wifi_error read_ota_file(char* file, char** buffer, uint32_t* size)
     }
     memset(buf, 0, file_size + 1);
     fseek(fp, 0, SEEK_SET);
-    count = fread(buf, file_size, 1, fp);
+    fread(buf, file_size, 1, fp);
 
     *buffer = (char*) buf;
     *size = file_size;

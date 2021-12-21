@@ -3251,7 +3251,6 @@ class NanMacControl : public WifiCommand
     }
 
     int handleEvent(WifiEvent& event) {
-        u16 inst_id;
         u32 ndp_instance_id = 0;
         int event_id = event.get_vendor_subcmd();
         nlattr *vendor_data = event.get_attribute(NL80211_ATTR_VENDOR_DATA);
@@ -3270,7 +3269,6 @@ class NanMacControl : public WifiCommand
             attr_type = it.get_type();
 
             if (it.get_type() == NAN_ATTRIBUTE_HANDLE) {
-                inst_id = it.get_u8();
             } else if (it.get_type() == NAN_ATTRIBUTE_NDP_ID) {
                 ndp_instance_id = it.get_u32();
                 ALOGI("handleEvent: ndp_instance_id = [%d]\n", ndp_instance_id);
