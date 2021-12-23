@@ -654,7 +654,6 @@ public:
         ALOGV("Register loghandler");
         int result;
         uint32_t event_sock_pid = getpid() + (WIFI_HAL_EVENT_SOCK_PORT << 22);
-        registerVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
 
         WifiRequest request(familyId(), ifaceId());
 
@@ -664,14 +663,18 @@ public:
             ALOGV("Failed to set Hal preInit; result = %d", result);
             return result;
         }
+        registerVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
+
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(SET_HAL_START_ATTRIBUTE_EVENT_SOCK_PID, event_sock_pid);
         if (result != WIFI_SUCCESS) {
+            unregisterVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
             ALOGV("Hal preInit Failed to put pic = %d", result);
             return result;
         }
 
         if (result != WIFI_SUCCESS) {
+            unregisterVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
             ALOGV("Hal preInit Failed to put pid= %d", result);
             return result;
         } 
@@ -680,6 +683,7 @@ public:
 
         result = requestResponse(request);
         if (result != WIFI_SUCCESS) {
+            unregisterVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
             ALOGE("Failed to register set Hal preInit; result = %d", result);
             return result;
         }
