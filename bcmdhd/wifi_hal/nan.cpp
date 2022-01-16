@@ -288,7 +288,9 @@ typedef enum {
     NAN_ATTRIBUTE_ENABLE_RANGING                    = 226,
     NAN_ATTRIBUTE_DW_EARLY_TERM                     = 227,
     NAN_ATTRIBUTE_CHANNEL_INFO                      = 228,
-    NAN_ATTRIBUTE_NUM_CHANNELS                      = 229
+    NAN_ATTRIBUTE_NUM_CHANNELS                      = 229,
+    NAN_ATTRIBUTE_INSTANT_MODE_ENABLE               = 230,
+    NAN_ATTRIBUTE_INSTANT_COMM_CHAN                 = 231
 } NAN_ATTRIBUTE;
 
 typedef enum {
@@ -857,6 +859,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->scid_len) {
+            if ((mParams->scid_len > NAN_MAX_SCID_BUF_LEN) ||
+                    (mParams->scid_len % NAN_SCID_INFO_LEN)) {
+                ALOGE("%s: Invalid scid len, = %d\n", __func__, mParams->scid_len);
+                return NAN_STATUS_INVALID_PARAM;
+            }
             result = request.put_u32(NAN_ATTRIBUTE_SCID_LEN,
                     mParams->scid_len);
             if (result < 0) {
@@ -1168,7 +1175,45 @@ class NanDiscEnginePrimitive : public WifiCommand
             return result;
         }
 
+        result = request.put_u8(NAN_ATTRIBUTE_CIPHER_SUITE_TYPE,
+                mParams->cipher_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_KEY_TYPE,
+                mParams->key_info.key_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_KEY_TYPE, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
+            if (mParams->key_info.body.pmk_info.pmk_len) {
+                result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                        mParams->key_info.body.pmk_info.pmk_len);
+                if (result < 0) {
+                    ALOGE("%s: Failed to fill pmk len, result = %d\n", __func__, result);
+                    return result;
+                }
+                result = request.put(NAN_ATTRIBUTE_KEY_DATA,
+                        (void *)mParams->key_info.body.pmk_info.pmk,
+                        mParams->key_info.body.pmk_info.pmk_len);
+                if (result < 0) {
+                    ALOGE("%s: Failed to fill pmk, result = %d\n", __func__, result);
+                    return result;
+                }
+            }
+        }
+
         if (mParams->scid_len) {
+            if (mParams->scid_len != NAN_SCID_INFO_LEN) {
+                ALOGE("%s: Invalid scid len, = %d\n", __func__, mParams->scid_len);
+                return NAN_STATUS_INVALID_PARAM;
+            }
             result = request.put_u32(NAN_ATTRIBUTE_SCID_LEN,
                     mParams->scid_len);
             if (result < 0) {
@@ -1176,7 +1221,6 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->scid, mParams->scid_len);
             result = request.put(NAN_ATTRIBUTE_SCID,
                     (void *)mParams->scid, mParams->scid_len);
             if (result < 0) {
@@ -2014,6 +2058,26 @@ class NanDataPathPrimitive : public WifiCommand
             }
         }
 
+        if (mParams->scid_len) {
+            if (mParams->scid_len != NAN_SCID_INFO_LEN) {
+                ALOGE("%s: Invalid scid len, = %d\n", __func__, mParams->scid_len);
+                return NAN_STATUS_INVALID_PARAM;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_SCID_LEN,
+                    mParams->scid_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill scid len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            result = request.put(NAN_ATTRIBUTE_SCID,
+                    (void *)mParams->scid, mParams->scid_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill scid, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
         request.attr_end(data);
         return WIFI_SUCCESS;
     }
@@ -2159,6 +2223,27 @@ class NanDataPathPrimitive : public WifiCommand
             }
         }
 
+        if (mParams->scid_len) {
+            if (mParams->scid_len != NAN_SCID_INFO_LEN) {
+                ALOGE("%s: Invalid scid len, = %d\n", __func__, mParams->scid_len);
+                return NAN_STATUS_INVALID_PARAM;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_SCID_LEN,
+                    mParams->scid_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill scid len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            prhex(NULL, mParams->scid, mParams->scid_len);
+            result = request.put(NAN_ATTRIBUTE_SCID,
+                    (void *)mParams->scid, mParams->scid_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill scid, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
         request.attr_end(data);
         return WIFI_SUCCESS;
     }
@@ -2300,7 +2385,7 @@ class NanDataPathPrimitive : public WifiCommand
                     attr_type = it.get_type();
 
                     if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
-                        ALOGI("publish_id: %u", it.get_u32());
+                        ALOGI("publish_id: %u\n", it.get_u32());
                         ndp_request_event.service_instance_id = it.get_u32();
 
                     } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
@@ -2310,17 +2395,17 @@ class NanDataPathPrimitive : public WifiCommand
                                 MAC2STR(ndp_request_event.peer_disc_mac_addr));
 
                     } else if (attr_type == NAN_ATTRIBUTE_NDP_ID) {
-                        ALOGI("ndp id: %u", it.get_u32());
+                        ALOGI("ndp id: %u\n", it.get_u32());
                         ndp_request_event.ndp_instance_id = it.get_u32();
 
                     } else if (attr_type == NAN_ATTRIBUTE_SECURITY) {
-                        ALOGI("security: %u",
+                        ALOGI("security: %u\n",
                                 (NanDataPathSecurityCfgStatus)it.get_u8());
                         ndp_request_event.ndp_cfg.security_cfg =
                             (NanDataPathSecurityCfgStatus)it.get_u8();
 
                     } else if (attr_type == NAN_ATTRIBUTE_QOS) {
-                        ALOGI("QoS: %u", (NanDataPathQosCfg)it.get_u8());
+                        ALOGI("QoS: %u\n", (NanDataPathQosCfg)it.get_u8());
                         ndp_request_event.ndp_cfg.qos_cfg = (NanDataPathQosCfg)it.get_u8();
 
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN) {
@@ -2332,7 +2417,17 @@ class NanDataPathPrimitive : public WifiCommand
                                 ndp_ind_app_info_len);
                         ndp_request_event.app_info.ndp_app_info
                             [ndp_ind_app_info_len] = '\0';
-                        ALOGI("service info: %s", ndp_request_event.app_info.ndp_app_info);
+                        ALOGI("service info: %s\n", ndp_request_event.app_info.ndp_app_info);
+
+                    } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
+                        ALOGI("scid len: %u\n", it.get_u32());
+                        ndp_request_event.scid_len = it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_SCID) {
+                        memcpy(ndp_request_event.scid, it.get_data(),
+                                ndp_request_event.scid_len);
+                        ndp_request_event.scid[ndp_request_event.scid_len] = '\0';
+                        ALOGI("scid : %s\n", ndp_request_event.scid);
 
                     }
                 }
@@ -2866,6 +2961,24 @@ class NanMacControl : public WifiCommand
             }
         }
 
+        if (mParams->config_enable_instant_mode) {
+            result = request.put_u32(NAN_ATTRIBUTE_INSTANT_MODE_ENABLE,
+                    mParams->enable_instant_mode);
+            if (result < 0) {
+                ALOGE("%s: Failing to fill enable instant mode, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->config_instant_mode_channel) {
+            result = request.put_u32(NAN_ATTRIBUTE_INSTANT_COMM_CHAN,
+                    mParams->instant_mode_channel);
+            if (result < 0) {
+                ALOGE("%s: Failing in config instant channel, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
         request.attr_end(data);
         NAN_DBG_EXIT();
         return WIFI_SUCCESS;
@@ -3129,6 +3242,25 @@ class NanMacControl : public WifiCommand
                 return result;
             }
         }
+
+        if (mParams->config_enable_instant_mode) {
+            result = request.put_u32(NAN_ATTRIBUTE_INSTANT_MODE_ENABLE,
+                    mParams->enable_instant_mode);
+            if (result < 0) {
+                ALOGE("%s: Failing to fill enable instant mode, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->config_instant_mode_channel) {
+            result = request.put_u32(NAN_ATTRIBUTE_INSTANT_COMM_CHAN,
+                    mParams->instant_mode_channel);
+            if (result < 0) {
+                ALOGE("%s: Failing in config instant channel, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
         request.attr_end(data);
         NAN_DBG_EXIT();
         return WIFI_SUCCESS;
@@ -3828,6 +3960,14 @@ static int dump_NanEnableRequest(NanEnableRequest* msg)
     if (msg->config_disc_mac_addr_randomization) {
         ALOGI("disc_mac_addr_rand_interval_sec =%u\n", msg->disc_mac_addr_rand_interval_sec);
     }
+    ALOGI("config_enable_instant_mode =%u\n", msg->config_enable_instant_mode);
+    if (msg->config_enable_instant_mode) {
+        ALOGI("enable_instant_mode =%u\n", msg->enable_instant_mode);
+    }
+    ALOGI("config_instant_mode_channel=%u\n", msg->config_instant_mode_channel);
+    if (msg->config_instant_mode_channel) {
+        ALOGI("instant_mode_channel=%u\n", msg->instant_mode_channel);
+    }
 
     return WIFI_SUCCESS;
 }
@@ -3893,6 +4033,15 @@ static int dump_NanConfigRequestRequest(NanConfigRequest* msg)
     if (msg->config_disc_mac_addr_randomization) {
         ALOGI("disc_mac_addr_rand_interval_sec =%u\n", msg->disc_mac_addr_rand_interval_sec);
     }
+    ALOGI("config_enable_instant_mode =%u\n", msg->config_enable_instant_mode);
+    if (msg->config_enable_instant_mode) {
+        ALOGI("enable_instant_mode =%u\n", msg->enable_instant_mode);
+    }
+    ALOGI("config_instant_mode_channel=%u\n", msg->config_instant_mode_channel);
+    if (msg->config_instant_mode_channel) {
+        ALOGI("instant_mode_channel=%u\n", msg->instant_mode_channel);
+    }
+
     return WIFI_SUCCESS;
 }
 
@@ -3912,17 +4061,21 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("publish_match_indicator=%u\n", msg->publish_match_indicator);
     ALOGI("service_responder_policy=%u\n", msg->service_responder_policy);
     ALOGI("service_name_len=%u\n", msg->service_name_len);
-    if (msg->service_name_len)
+    if (msg->service_name_len) {
         ALOGI("service_name=%s\n", msg->service_name);
+    }
     ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
-    if (msg->service_specific_info_len)
+    if (msg->service_specific_info_len) {
         ALOGI("service_specific_info=%s\n", msg->service_specific_info);
+    }
     ALOGI("rx_match_filter_len=%u\n", msg->rx_match_filter_len);
-    if (msg->rx_match_filter_len)
+    if (msg->rx_match_filter_len) {
         prhex("rx_match_filter", msg->rx_match_filter, msg->rx_match_filter_len);
+    }
     ALOGI("tx_match_filter_len=%u\n", msg->tx_match_filter_len);
-    if (msg->tx_match_filter_len)
+    if (msg->tx_match_filter_len) {
         prhex("tx_match_filter", msg->tx_match_filter, msg->tx_match_filter_len);
+    }
     ALOGI("rssi_threshold_flag=%u\n", msg->rssi_threshold_flag);
     ALOGI("connmap=%u\n", msg->connmap);
     ALOGI("recv_indication_cfg=%u\n", msg->recv_indication_cfg);
@@ -3931,8 +4084,9 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
     ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len)
+    if (msg->scid_len) {
         ALOGI("scid=%s\n", msg->scid);
+    }
     ALOGI("NanSdeaCtrlParams NdpType=%u\n", msg->sdea_params.ndp_type);
     ALOGI("NanSdeaCtrlParams security_cfg=%u\n", msg->sdea_params.security_cfg);
     ALOGI("NanSdeaCtrlParams ranging_state=%u\n", msg->sdea_params.ranging_state);
@@ -3945,8 +4099,9 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("range_response_cfg=%u\n", msg->range_response_cfg.ranging_response);
 
     ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-    if (msg->sdea_service_specific_info_len)
+    if (msg->sdea_service_specific_info_len) {
         ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
+    }
 
     return WIFI_SUCCESS;
 }
@@ -3995,8 +4150,9 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
     ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len)
+    if (msg->scid_len) {
         ALOGI("scid=%s\n", msg->scid);
+    }
     ALOGI("NanSdeaCtrlParams NdpType=%u\n", msg->sdea_params.ndp_type);
     ALOGI("NanSdeaCtrlParams security_cfg=%u\n", msg->sdea_params.security_cfg);
     ALOGI("NanSdeaCtrlParams ranging_state=%u\n", msg->sdea_params.ranging_state);
@@ -4063,6 +4219,10 @@ static int dump_NanDataPathInitiatorRequest(NanDataPathInitiatorRequest* msg)
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
     ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
     ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
+    ALOGI("scid_len=%u\n", msg->scid_len);
+    if (msg->scid_len) {
+        ALOGI("scid=%s\n", msg->scid);
+    }
     if (msg->service_name_len) {
         ALOGI("service_name=%s\n", msg->service_name);
     }
@@ -4093,6 +4253,10 @@ static int dump_NanDataPathIndicationResponse(NanDataPathIndicationResponse* msg
     ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
     ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("service_name_len=%u\n", msg->service_name_len);
+    ALOGI("scid_len=%u\n", msg->scid_len);
+    if (msg->scid_len) {
+        ALOGI("scid=%s\n", msg->scid);
+    }
     if (msg->service_name_len) {
         ALOGI("service_name=%s\n", msg->service_name);
     }
@@ -4903,6 +5067,15 @@ class NanEventCap : public WifiCommand
                             ndp_request_event.app_info.ndp_app_info[ndp_ind_app_info_len] = '\0';
                             ALOGI("service info: %s\n", ndp_request_event.app_info.ndp_app_info);
 
+                        } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
+                            ALOGI("scid length %d\n", it.get_u32());
+                            ndp_request_event.scid_len= it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_SCID) {
+                            memcpy(ndp_request_event.scid, it.get_data(),
+                                ndp_request_event.scid_len);
+                            ndp_request_event.scid[ndp_request_event.scid_len] = '\0';
+                            ALOGI("scid: %s\n", ndp_request_event.scid);
                         }
                     }
 

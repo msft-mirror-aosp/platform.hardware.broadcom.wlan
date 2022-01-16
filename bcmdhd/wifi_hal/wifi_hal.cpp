@@ -617,7 +617,6 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     }
 
     hal_info *info = getHalInfo(handle);
-    char buf[64];
     wifi_error result;
 
     int numIfaceHandles = 0;

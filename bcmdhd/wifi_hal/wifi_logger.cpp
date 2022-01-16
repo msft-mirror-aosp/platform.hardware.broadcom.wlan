@@ -984,7 +984,7 @@ public:
         : WifiCommand("SetRestartHandler", handle, id), mHandler(handler), mBuff(NULL)
     { }
     int start() {
-        ALOGI("Start Restart Handler handler:%p", mHandler);
+        ALOGI("Start Restart Handler handler");
         registerVendorHandler(BRCM_OUI, BRCM_VENDOR_EVENT_HANGED);
         return WIFI_SUCCESS;
     }
@@ -1809,11 +1809,10 @@ wifi_error wifi_get_wake_reason_stats(wifi_interface_handle handle,
 ///////////////////////////////////////////////////////////////////////////////
 class OtaUpdateCommand : public WifiCommand
 {
-    int mErrCode;
 
     public:
     OtaUpdateCommand(wifi_interface_handle iface)
-        : WifiCommand("OtaUpdateCommand", iface, 0), mErrCode(0)
+        : WifiCommand("OtaUpdateCommand", iface, 0)
     { }
 
     int start() {

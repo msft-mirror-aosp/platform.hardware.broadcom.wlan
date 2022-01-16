@@ -54,8 +54,11 @@ const uint32_t BRCM_OUI =  0x001018;
 #define NMR2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5], (a)[6], (a)[7]
 #define NMRSTR "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
 #define NAN_MASTER_RANK_LEN 8
+#define NAN_SCID_INFO_LEN   16
 
 #define SAR_CONFIG_SCENARIO_COUNT      100
+#define MAX_NUM_RADIOS 3
+#define MAX_CMD_RESP_BUF_LEN 8192
 
 /*
  This enum defines ranges for various commands; commands themselves
