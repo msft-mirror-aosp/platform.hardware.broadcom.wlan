@@ -3254,13 +3254,15 @@ class NanMacControl : public WifiCommand
             }
         }
 
-        if (mParams->config_instant_mode_channel) {
+        if (mParams->enable_instant_mode && mParams->config_instant_mode_channel
+            && mParams->instant_mode_channel) {
             result = request.put_u32(NAN_ATTRIBUTE_INSTANT_COMM_CHAN,
                     mParams->instant_mode_channel);
             if (result < 0) {
                 ALOGE("%s: Failing in config instant channel, result = %d\n", __func__, result);
                 return result;
             }
+            ALOGI("%s: instant mode channel = %d\n", __func__, mParams->instant_mode_channel);
         }
 
         request.attr_end(data);
@@ -3868,7 +3870,6 @@ static int get_svc_hash(unsigned char *svc_name,
     return WIFI_SUCCESS;
 }
 
-#ifdef CONFIG_BRCM
 static int dump_NanEnableRequest(NanEnableRequest* msg)
 {
     ALOGI("%s: Dump NanEnableRequest msg:\n", __func__);
@@ -3974,6 +3975,7 @@ static int dump_NanEnableRequest(NanEnableRequest* msg)
     return WIFI_SUCCESS;
 }
 
+#ifdef CONFIG_BRCM
 static int dump_NanConfigRequestRequest(NanConfigRequest* msg)
 {
     ALOGI("%s: Dump NanConfigRequest msg:\n", __func__);
