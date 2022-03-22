@@ -540,6 +540,7 @@ wifi_error wifi_initialize(wifi_handle *handle)
         }
     } else {
         ALOGI("Not Calling set alert handler as global_iface is NULL");
+        return WIFI_ERROR_UNKNOWN;
     }
     return WIFI_SUCCESS;
 }
