@@ -232,7 +232,7 @@ typedef enum {
     WIFI_SUBCMD_OTA_UPDATE,
     WIFI_SUBCMD_USABLE_CHANNEL = ANDROID_NL80211_SUBCMD_USABLE_CHANNEL_START,
     WIFI_SUBCMD_TRIGGER_SSR = ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START,
-
+    WIFI_SUBCMD_GET_RADIO_COMBO_MATRIX,
 } WIFI_SUB_COMMAND;
 
 typedef enum {
@@ -448,6 +448,12 @@ wifi_error wifi_start_hal(wifi_interface_handle iface);
 wifi_error wifi_stop_hal(wifi_interface_handle iface);
 wifi_interface_handle wifi_get_wlan_interface(wifi_handle info,
 	    wifi_interface_handle *ifaceHandles, int numIfaceHandles);
+#ifdef RING_DUMP
+wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
+            wifi_ring_buffer_data_handler ring_handle);
+wifi_error wifi_stop_ring_dump(wifi_interface_handle iface,
+            wifi_ring_buffer_data_handler ring_handle);
+#endif /* RING_DUMP */
 wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version);
 wifi_error wifi_hal_preInit(wifi_interface_handle iface);
 /* API to get wake reason statistics */
