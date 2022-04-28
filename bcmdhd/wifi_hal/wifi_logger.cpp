@@ -1676,7 +1676,9 @@ public:
                 case DUMP_BUF_ATTR_COOKIE:
                 case DUMP_BUF_ATTR_FLOWRING_DUMP:
                 case DUMP_BUF_ATTR_STATUS_LOG:
-                case DUMP_BUF_ATTR_RTT_LOG: {
+                case DUMP_BUF_ATTR_RTT_LOG:
+                case DUMP_BUF_ATTR_PKTID_MAP_LOG:
+                case DUMP_BUF_ATTR_PKTID_UNMAP_LOG: {
                     if (it.get_u32()) {
                         ALOGE("Copying data to userspace failed, status = %d\n", it.get_u32());
                         return WIFI_ERROR_UNKNOWN;
@@ -1800,7 +1802,9 @@ public:
                     case DUMP_LEN_ATTR_COOKIE:
                     case DUMP_LEN_ATTR_FLOWRING_DUMP:
                     case DUMP_LEN_ATTR_STATUS_LOG:
-                    case DUMP_LEN_ATTR_RTT_LOG: {
+                    case DUMP_LEN_ATTR_RTT_LOG:
+                    case DUMP_LEN_ATTR_PKTID_MAP_LOG:
+                    case DUMP_LEN_ATTR_PKTID_UNMAP_LOG: {
                         mActualBuffSize = it.get_u32();
                         DUMP_DEBUG(("len attr %s, len %d\n",
                             EWP_EventAttrToString(attr), mActualBuffSize));
