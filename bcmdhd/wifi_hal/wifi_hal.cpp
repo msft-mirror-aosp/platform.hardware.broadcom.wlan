@@ -341,6 +341,9 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_get_usable_channels = wifi_get_usable_channels;
     fn->wifi_trigger_subsystem_restart = wifi_trigger_subsystem_restart;
     fn->wifi_get_supported_radio_combinations_matrix = wifi_get_supported_radio_combinations_matrix;
+    fn->wifi_nan_rtt_chre_enable_request = nan_chre_enable_request;
+    fn->wifi_nan_rtt_chre_disable_request = nan_chre_disable_request;
+    fn->wifi_chre_register_handler = nan_chre_register_handler;
 
     return WIFI_SUCCESS;
 }
