@@ -306,6 +306,12 @@ typedef struct {
     bool is_virtual;                                // mark each iface as virtual or static
 } interface_info;
 
+typedef enum {
+	NAN_STATE_DISABLED = 0,
+	NAN_STATE_AP = 1,
+	NAN_STATE_CHRE = 2,
+} nan_enab_state_t;
+
 typedef struct {
 
     struct nl_sock *cmd_sock;                       // command socket object
@@ -333,6 +339,8 @@ typedef struct {
     int max_num_interfaces;                         // max number of interfaces
     wifi_subsystem_restart_handler restart_handler; // trigger sub system handler
 
+    wifi_chre_handler chre_nan_cb;                  // chre CB for nan status
+    nan_enab_state_t nan_state;                     // Nan enable state
 
     // add other details
 } hal_info;
@@ -533,6 +541,36 @@ wifi_error twt_get_stats(wifi_interface_handle iface, u8 config_id, TwtStats* st
 wifi_error twt_clear_stats(wifi_interface_handle iface, u8 config_id);
 
 wifi_error wifi_trigger_subsystem_restart(wifi_handle handle);
+
+/**@brief nan_chre_enable_request
+ *        Request from CHRE to enable NAN
+ * @param transaction id:
+ * @param wifi_interface_handle:
+ * @param NanEnableRequest:
+ * @return Synchronous wifi_error
+ */
+wifi_error nan_chre_enable_request(transaction_id id,
+                        wifi_interface_handle iface,
+                        NanEnableRequest* msg);
+
+/**@brief nan_chre_disable_request
+ *        Request from CHRE to disable NAN
+ * @param transaction id:
+ * @param wifi_interface_handle:
+ * @return Synchronous wifi_error
+ */
+wifi_error nan_chre_disable_request(transaction_id id,
+                        wifi_interface_handle iface);
+
+/**@brief nan_chre_register_handler
+ *        Register chre handler to handle NAN status
+ * @param wifi_interface_handle:
+ * @param wifi_chre_handler:
+ * @return Synchronous wifi_error
+ */
+wifi_error nan_chre_register_handler(wifi_interface_handle iface,
+                        wifi_chre_handler handler);
+
 // some common macros
 
 #define min(x, y)       ((x) < (y) ? (x) : (y))
