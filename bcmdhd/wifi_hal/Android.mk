@@ -41,6 +41,14 @@ LOCAL_C_INCLUDES += \
 
 LOCAL_HEADER_LIBRARIES := libutils_headers liblog_headers
 
+ifneq ($(wildcard vendor/google/libraries/GoogleWifiConfigLib),)
+LOCAL_SHARED_LIBRARIES += \
+	google_wifi_firmware_config_version_c_wrapper
+LOCAL_CFLAGS += -DGOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
+#only for pixel feature
+LOCAL_CFLAGS += -DRING_DUMP
+endif
+
 LOCAL_SRC_FILES := \
 	wifi_hal.cpp \
 	rtt.cpp \
@@ -50,10 +58,12 @@ LOCAL_SRC_FILES := \
 	nan.cpp \
 	link_layer_stats.cpp \
 	wifi_logger.cpp \
-	wifi_offload.cpp
+	wifi_offload.cpp \
+	twt.cpp
 
 LOCAL_MODULE := libwifi-hal-bcm
+LOCAL_LICENSE_KINDS := SPDX-license-identifier-Apache-2.0
+LOCAL_LICENSE_CONDITIONS := notice
 LOCAL_PROPRIETARY_MODULE := true
 
 include $(BUILD_STATIC_LIBRARY)
-
