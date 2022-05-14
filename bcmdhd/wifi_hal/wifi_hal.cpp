@@ -98,6 +98,9 @@ static wifi_error wifi_get_supported_radio_combinations_matrix(wifi_handle handl
 		u32 max_size, u32* size, wifi_radio_combination_matrix *radio_combination_matrix);
 
 static void wifi_cleanup_dynamic_ifaces(wifi_handle handle);
+static wifi_error wifi_enable_tx_power_limits(wifi_interface_handle iface,
+        bool isEnable);
+
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
     ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET            = 1,
@@ -194,6 +197,13 @@ enum wifi_multista_attr {
 enum multista_request_type {
     SET_PRIMARY_CONNECTION,
     SET_USE_CASE
+};
+
+enum wifi_tx_power_limits {
+    TX_POWER_CAP_ATTRIBUTE_INVALID    = 0,
+    TX_POWER_CAP_ENABLE_ATTRIBUTE     = 1,
+    /* Add more attributes here */
+    TX_POWER_ATTRIBUTE_MAX
 };
 
 /* Initialize/Cleanup */
@@ -344,6 +354,7 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_nan_rtt_chre_enable_request = nan_chre_enable_request;
     fn->wifi_nan_rtt_chre_disable_request = nan_chre_disable_request;
     fn->wifi_chre_register_handler = nan_chre_register_handler;
+    fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
 
     return WIFI_SUCCESS;
 }
@@ -3000,4 +3011,43 @@ wifi_error wifi_get_usable_channels(wifi_handle handle, u32 band_mask, u32 iface
     UsableChannelCommand command(wlan0Handle, band_mask, iface_mode_mask,
                                     filter_mask, max_size, size, channels);
     return (wifi_error)command.start();
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+class EnableTxPowerLimit : public WifiCommand {
+private:
+    bool mEnableTxLimits;
+public:
+    EnableTxPowerLimit(wifi_interface_handle handle, bool enable_tx_pwr_limits)
+        : WifiCommand("EnableTxPowerLimit", handle, 0)
+    {
+        mEnableTxLimits = enable_tx_pwr_limits;
+    }
+
+    virtual int create() {
+        int ret;
+
+        ret = mMsg.create(GOOGLE_OUI, WIFI_SUBCMD_ENABLE_TX_POWER_LIMIT);
+        if (ret < 0) {
+            ALOGE("Can't create message to send to driver - %d", ret);
+            return ret;
+        }
+
+        nlattr *data = mMsg.attr_start(NL80211_ATTR_VENDOR_DATA);
+        ret = mMsg.put_u8(TX_POWER_CAP_ENABLE_ATTRIBUTE, mEnableTxLimits);
+        if (ret < 0) {
+             ALOGE("Failed to put enable tx power limit param %d\n", mEnableTxLimits);
+             return ret;
+        }
+        mMsg.attr_end(data);
+        return WIFI_SUCCESS;
+    }
+};
+
+wifi_error wifi_enable_tx_power_limits(wifi_interface_handle handle, bool isEnable)
+{
+    ALOGD("Configuring the tx power limits , halHandle = %p\n", handle);
+
+    EnableTxPowerLimit command(handle, isEnable);
+    return (wifi_error) command.requestResponse();
 }
