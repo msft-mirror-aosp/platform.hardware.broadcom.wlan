@@ -290,7 +290,8 @@ typedef enum {
     NAN_ATTRIBUTE_CHANNEL_INFO                      = 228,
     NAN_ATTRIBUTE_NUM_CHANNELS                      = 229,
     NAN_ATTRIBUTE_INSTANT_MODE_ENABLE               = 230,
-    NAN_ATTRIBUTE_INSTANT_COMM_CHAN                 = 231
+    NAN_ATTRIBUTE_INSTANT_COMM_CHAN                 = 231,
+    NAN_ATTRIBUTE_CHRE_REQUEST                      = 232,
 } NAN_ATTRIBUTE;
 
 typedef enum {
@@ -2543,6 +2544,7 @@ class NanMacControl : public WifiCommand
     wifi_interface_handle mIface;
     NanRequestType mType;
     u32 mVersion;
+    u8 mChreNan;
 
     public:
     NanMacControl(wifi_interface_handle iface, int id,
@@ -2580,6 +2582,10 @@ class NanMacControl : public WifiCommand
 
     void setMsg(NanRequest params) {
         mParams = params;
+    }
+
+    void setChreNan(u8 chre_nan) {
+        mChreNan = chre_nan;
     }
 
     int createRequest(WifiRequest& request) {
@@ -2981,6 +2987,12 @@ class NanMacControl : public WifiCommand
             ALOGI("%s: instant mode channel = %d\n", __func__, mParams->instant_mode_channel);
         }
 
+        result = request.put_u8(NAN_ATTRIBUTE_CHRE_REQUEST, mChreNan);
+        if (result < 0) {
+            ALOGE("%s: Failing in config chreNan, result = %d\n", __func__, result);
+            return result;
+        }
+
         request.attr_end(data);
         NAN_DBG_EXIT();
         return WIFI_SUCCESS;
@@ -2996,6 +3008,12 @@ class NanMacControl : public WifiCommand
         }
 
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        result = request.put_u8(NAN_ATTRIBUTE_CHRE_REQUEST, mChreNan);
+        if (result < 0) {
+            ALOGE("%s: Failing in config chreNan, result = %d\n", __func__, result);
+            return result;
+        }
 
         request.attr_end(data);
 
@@ -3322,6 +3340,10 @@ class NanMacControl : public WifiCommand
             return NL_SKIP;
         }
 
+        if (mChreNan) {
+            return NL_SKIP;
+        }
+
         rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
         ALOGI("NanMacControl::handleResponse\n");
         if (mType == NAN_VERSION_INFO) {
@@ -3398,6 +3420,10 @@ class NanMacControl : public WifiCommand
                 __func__, event.get_cmd(), len);
         if (!vendor_data || len == 0) {
             ALOGE("No event data found");
+            return NL_SKIP;
+        }
+
+        if (mChreNan) {
             return NL_SKIP;
         }
 
@@ -4274,32 +4300,66 @@ void nan_reset_dbg_counters()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-wifi_error nan_enable_request(transaction_id id,
-        wifi_interface_handle iface, NanEnableRequest* msg)
+wifi_error nan_cmn_enabe_request(transaction_id id,
+        NanMacControl *cmd, NanEnableRequest* msg)
 {
     wifi_error ret = WIFI_SUCCESS;
-    wifi_handle handle = getWifiHandle(iface);
-    NanRequestType cmdType = NAN_REQUEST_ENABLE;
-
-    ALOGI("Enabling Nan, Handle = %p\n", handle);
-
 #ifdef CONFIG_BRCM
     // check up nan enable params from Nan manager level
     dump_NanEnableRequest(msg);
 #endif /* CONFIG_BRCM */
     nan_reset_dbg_counters();
-    /* XXX: WAR posting async enable response */
-    //NanMacControl *cmd = new NanMacControl(iface, id, (void *)msg, cmdType);
-    NanMacControl *cmd = (NanMacControl*)(info.nan_mac_control);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    cmd->setType(cmdType);
+
+    cmd->setType(NAN_REQUEST_ENABLE);
     cmd->setId(id);
     cmd->setMsg((void *)msg);
+
     ret = (wifi_error)cmd->start();
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s : failed in start, error = %d\n", __func__, ret);
     }
-    //cmd->releaseRef();
+
+    return ret;
+}
+
+wifi_error nan_enable_request(transaction_id id,
+        wifi_interface_handle iface, NanEnableRequest* msg)
+{
+    wifi_error ret = WIFI_SUCCESS;
+   hal_info *h_info = getHalInfo(iface);
+
+	ALOGE("nan_enable_request: nan_state = %d\n", h_info->nan_state);
+
+#ifdef CHRE_NAN
+    //check if host NAN is pre-empting CHRE NAN
+    if (h_info->nan_state == NAN_STATE_CHRE) {
+        /* notify pre-empt to chre */
+        if (h_info->chre_nan_cb.on_chre_nan_rtt_change != NULL) {
+            h_info->chre_nan_cb.on_chre_nan_rtt_change(CHRE_PREMPTED);
+        }
+        /* first disable NAN for chre */
+        ret = nan_chre_disable_request(1, iface);
+        if (ret != WIFI_SUCCESS) {
+            ALOGE("Failed to disable NAN for CHRE ret %d\n", ret);
+            return ret;
+        }
+    }
+
+    /* notify unavailable status to chre */
+    if (h_info->chre_nan_cb.on_chre_nan_rtt_change != NULL) {
+        h_info->chre_nan_cb.on_chre_nan_rtt_change(CHRE_UNAVAILABLE);
+    }
+#endif /* CHRE_NAN */
+
+    NanMacControl *cmd = (NanMacControl*)(info.nan_mac_control);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    cmd->setChreNan(0);
+    ret = nan_cmn_enabe_request(id, cmd, msg);
+
+    if (ret == WIFI_SUCCESS) {
+        h_info->nan_state = NAN_STATE_AP;
+    }
+
     return ret;
 }
 
@@ -4314,16 +4374,40 @@ void nan_dump_dbg_counters()
     ALOGI("Num Transmit Success %d\n", counters.transmit_txs);
 }
 
+wifi_error nan_cmn_disable_request(transaction_id id, NanMacControl *mac)
+{
+    wifi_error ret = WIFI_SUCCESS;
+
+    nan_dump_dbg_counters();
+
+    mac->setType(NAN_REQUEST_DISABLE);
+    ret = (wifi_error)mac->cancel();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("cancel failed, error = %d\n", ret);
+    } else {
+        ALOGE("Deinitializing Nan Mac Control = %p\n", mac);
+    }
+    mac->releaseRef();
+
+    return ret;
+}
 wifi_error nan_disable_request(transaction_id id,
         wifi_interface_handle iface)
 {
-    wifi_handle handle = getWifiHandle(iface);
-    NanRequestType cmdType = NAN_REQUEST_DISABLE;
     wifi_error ret = WIFI_SUCCESS;
+    hal_info *h_info = getHalInfo(iface);
 
-    ALOGI("Disabling Nan, Handle = %p\n", handle);
-    NanMacControl *cmd = new NanMacControl(iface, id, NULL, cmdType);
+    ALOGE("nan_disable_request: nan_state %d\n", h_info->nan_state);
+
+    if (h_info->nan_state == NAN_STATE_CHRE) {
+        ALOGE("nan_disable_request: Not enabled for AP.. return\n");
+        return ret;
+    }
+
     NanMacControl *mac_prim = (NanMacControl*)(info.nan_mac_control);
+    NanMacControl *cmd = new NanMacControl(iface, id, NULL, NAN_REQUEST_LAST);
+
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
 
     if (id != NAN_MAC_INVALID_TRANSID) {
         ALOGE("Disable NAN MAC transId= %d\n", id);
@@ -4332,17 +4416,15 @@ wifi_error nan_disable_request(transaction_id id,
         ALOGE("Invalid transId= %d cur= %d\n", id, mac_prim->getId());
     }
 
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-
-    nan_dump_dbg_counters();
-
-    ret = (wifi_error)cmd->cancel();
-    if (ret != WIFI_SUCCESS) {
-        ALOGE("cancel failed, error = %d\n", ret);
-    } else {
-        ALOGE("Deinitializing Nan Mac Control = %p\n", cmd);
+    cmd->setChreNan(0);
+    ret = nan_cmn_disable_request(id, cmd);
+    if (ret == WIFI_SUCCESS) {
+        h_info->nan_state = NAN_STATE_DISABLED;
+        /* notify pre-empt / unavailable status to chre */
+        if (h_info->chre_nan_cb.on_chre_nan_rtt_change != NULL) {
+            h_info->chre_nan_cb.on_chre_nan_rtt_change(CHRE_AVAILABLE);
+        }
     }
-    cmd->releaseRef();
     return ret;
 }
 
@@ -5437,5 +5519,91 @@ wifi_error nan_data_end(transaction_id id,
     }
     cmd->releaseRef();
     NAN_DBG_EXIT();
+    return ret;
+}
+
+wifi_error nan_chre_enable_request(transaction_id id,
+        wifi_interface_handle iface, NanEnableRequest* msg)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    NanEnableRequest def_msg;
+    hal_info *h_info = getHalInfo(iface);
+
+    ALOGI("nan_chre_enable_request: nan_state %d\n", h_info->nan_state);
+
+    if (h_info->nan_state == NAN_STATE_CHRE) {
+        return WIFI_SUCCESS;
+    } else if (h_info->nan_state == NAN_STATE_AP) {
+        ALOGE("nan_chre_enable_request: Nan is enabled for AP. Fail CHRE request\n");
+        return WIFI_ERROR_BUSY;
+    }
+
+    NanMacControl *mac = new NanMacControl(iface, 0, NULL, NAN_REQUEST_LAST);
+    NULL_CHECK_RETURN(mac, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+
+    mac->setChreNan(1);
+    if (msg == NULL) {
+        /* default enable params */
+        ALOGI("Input Enable config is NULL, use default config\n");
+        memset(&def_msg, 0, sizeof(def_msg));
+        def_msg.hop_count_limit_val = 5;
+        def_msg.config_2dot4g_support = 1;
+        def_msg.support_2dot4g_val = 1;
+        def_msg.config_2dot4g_beacons = 1;
+        def_msg.beacon_2dot4g_val = 1;
+        def_msg.config_2dot4g_sdf = 1;
+        def_msg.sdf_2dot4g_val = 1;
+        def_msg.config_disc_mac_addr_randomization = true;
+        def_msg.disc_mac_addr_rand_interval_sec = 0;
+        def_msg.config_ndpe_attr = false;
+        ret = nan_cmn_enabe_request(id, mac, &def_msg);
+    } else {
+        ret = nan_cmn_enabe_request(id, mac, msg);
+    }
+
+    if (ret == WIFI_SUCCESS) {
+        h_info->nan_state = NAN_STATE_CHRE;
+    }
+
+    return ret;
+}
+
+wifi_error nan_chre_disable_request(transaction_id id,
+        wifi_interface_handle iface)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    hal_info *h_info = getHalInfo(iface);
+
+    ALOGI("nan_chre_disable_request: nan_state %d\n", h_info->nan_state);
+
+    if (h_info->nan_state == NAN_STATE_AP) {
+        ALOGE("nan_chre_disable_request: Not enabled for CHRE.. return\n");
+        return ret;
+    }
+
+    NanMacControl *cmd = new NanMacControl(iface, id, NULL, NAN_REQUEST_LAST);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+
+    cmd->setChreNan(1);
+    ret = nan_cmn_disable_request(id, cmd);
+
+    if (ret == WIFI_SUCCESS) {
+        h_info->nan_state = NAN_STATE_DISABLED;
+    }
+
+    return ret;
+}
+
+wifi_error nan_chre_register_handler(wifi_interface_handle iface,
+        wifi_chre_handler handler)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    hal_info *h_info = getHalInfo(iface);
+
+    if (h_info) {
+        ALOGE("Registering CHRE handler for Nan Status %p\n", handler.on_chre_nan_rtt_change);
+        h_info->chre_nan_cb = handler;
+    }
+
     return ret;
 }
