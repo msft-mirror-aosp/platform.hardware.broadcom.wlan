@@ -518,19 +518,25 @@ typedef struct {
 } sku_info_t;
 
 sku_info_t sku_table[] = {
-	{ {"G9S9B"}, {"MMW"} },
-	{ {"G8V0U"}, {"MMW"} },
-	{ {"GFQM1"}, {"MMW"} },
-	{ {"GB62Z"}, {"MMW"} },
-	{ {"GB7N6"}, {"ROW"} },
-	{ {"GLU0G"}, {"ROW"} },
-	{ {"GNA8F"}, {"ROW"} },
-	{ {"GX7AS"}, {"ROW"} },
-	{ {"GR1YH"}, {"JPN"} },
-	{ {"GF5KQ"}, {"JPN"} },
-	{ {"GPQ72"}, {"JPN"} },
-	{ {"GB17L"}, {"JPN"} },
-	{ {"G1AZG"}, {"EU"} }
+    { {"G9S9B"}, {"MMW"} },
+    { {"G8V0U"}, {"MMW"} },
+    { {"GFQM1"}, {"MMW"} },
+    { {"GB62Z"}, {"MMW"} },
+    { {"GE2AE"}, {"MMW"} },
+    { {"GQML3"}, {"MMW"} },
+    { {"GB7N6"}, {"ROW"} },
+    { {"GLU0G"}, {"ROW"} },
+    { {"GNA8F"}, {"ROW"} },
+    { {"GX7AS"}, {"ROW"} },
+    { {"GP4BC"}, {"ROW"} },
+    { {"GVU6C"}, {"ROW"} },
+    { {"GR1YH"}, {"JPN"} },
+    { {"GF5KQ"}, {"JPN"} },
+    { {"GPQ72"}, {"JPN"} },
+    { {"GB17L"}, {"JPN"} },
+    { {"GFE4J"}, {"JPN"} },
+    { {"G03Z5"}, {"JPN"} },
+    { {"G1AZG"}, {"EU"} }
 };
 ///////////////////////////////////////////////////////////////////////////////
 class DebugCommand : public WifiCommand
@@ -1676,7 +1682,9 @@ public:
                 case DUMP_BUF_ATTR_COOKIE:
                 case DUMP_BUF_ATTR_FLOWRING_DUMP:
                 case DUMP_BUF_ATTR_STATUS_LOG:
-                case DUMP_BUF_ATTR_RTT_LOG: {
+                case DUMP_BUF_ATTR_RTT_LOG:
+                case DUMP_BUF_ATTR_PKTID_MAP_LOG:
+                case DUMP_BUF_ATTR_PKTID_UNMAP_LOG: {
                     if (it.get_u32()) {
                         ALOGE("Copying data to userspace failed, status = %d\n", it.get_u32());
                         return WIFI_ERROR_UNKNOWN;
@@ -1800,7 +1808,9 @@ public:
                     case DUMP_LEN_ATTR_COOKIE:
                     case DUMP_LEN_ATTR_FLOWRING_DUMP:
                     case DUMP_LEN_ATTR_STATUS_LOG:
-                    case DUMP_LEN_ATTR_RTT_LOG: {
+                    case DUMP_LEN_ATTR_RTT_LOG:
+                    case DUMP_LEN_ATTR_PKTID_MAP_LOG:
+                    case DUMP_LEN_ATTR_PKTID_UNMAP_LOG: {
                         mActualBuffSize = it.get_u32();
                         DUMP_DEBUG(("len attr %s, len %d\n",
                             EWP_EventAttrToString(attr), mActualBuffSize));
