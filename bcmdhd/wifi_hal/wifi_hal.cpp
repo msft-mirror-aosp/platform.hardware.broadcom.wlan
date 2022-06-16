@@ -565,12 +565,13 @@ wifi_error wifi_wait_for_driver_ready(void)
     // Function times out after 10 seconds
     int count = (POLL_DRIVER_MAX_TIME_MS * 1000) / POLL_DRIVER_DURATION_US;
     FILE *fd;
+    wifi_error status = WIFI_SUCCESS;
 
     do {
         if ((fd = fopen("/sys/class/net/wlan0", "r")) != NULL) {
             fclose(fd);
-            wifi_pre_initialize();
-            return WIFI_SUCCESS;
+            status = wifi_pre_initialize();
+            return status;
         }
         usleep(POLL_DRIVER_DURATION_US);
     } while(--count > 0);
