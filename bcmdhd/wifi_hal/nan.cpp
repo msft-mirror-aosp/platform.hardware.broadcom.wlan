@@ -40,13 +40,13 @@
 
 #include <utils/Log.h>
 #include <log/log.h>
-#include "wifi_hal.h"
+#include <hardware_legacy/wifi_hal.h>
 #include "common.h"
 #include "cpp_bindings.h"
 #include "netinet/in.h"
 #include "arpa/inet.h"
 #include <openssl/sha.h>
-#include <openssl/evp.h> 
+#include <openssl/evp.h>
 #include <sys/ioctl.h>
 
 /* Changes between incompatible Version of NAN */
