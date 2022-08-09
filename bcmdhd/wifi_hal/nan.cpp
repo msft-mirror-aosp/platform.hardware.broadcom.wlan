@@ -4413,7 +4413,8 @@ wifi_error nan_disable_request(transaction_id id,
         ALOGE("Disable NAN MAC transId= %d\n", id);
         mac_prim->setId(id);
     } else {
-        ALOGE("Invalid transId= %d cur= %d\n", id, mac_prim->getId());
+        ALOGE("Invalid transId= %d cur= %d\n", id,
+              mac_prim ? mac_prim->getId() : -1);
     }
 
     cmd->setChreNan(0);
