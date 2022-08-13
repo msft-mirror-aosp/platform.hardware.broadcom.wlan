@@ -131,6 +131,11 @@ protected:
         }
 
         if (num_radios) {
+            if (!data || !data_len) {
+                ALOGE("%s: null data\n", __func__);
+                return NL_SKIP;
+            }
+
             rem_len = MAX_CMD_RESP_BUF_LEN;
             radioStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
             if (!radioStatsBuf) {
@@ -139,11 +144,6 @@ protected:
             }
             memset(radioStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
             output = radioStatsBuf;
-
-            if (!data || !data_len) {
-                ALOGE("%s: null data\n", __func__);
-                return NL_SKIP;
-            }
 
             data_ptr = (u8*)data;
             for (int i = 0; i < num_radios; i++) {
@@ -161,12 +161,18 @@ protected:
                     convertToExternalRadioStatStructure((wifi_radio_stat*)data_ptr,
                         &per_radio_size);
                 if (!radio_stat_ptr || !per_radio_size) {
+                    if (radio_stat_ptr) {
+                        free(radio_stat_ptr);
+                        radio_stat_ptr = NULL;
+                    }
                     ALOGE("No data for radio %d\n", i);
                     continue;
                 }
                 memcpy(output, radio_stat_ptr, per_radio_size);
                 output += per_radio_size;
                 total_size += per_radio_size;
+                free(radio_stat_ptr);
+                radio_stat_ptr = NULL;
             }
 
             iface_stat = ((u8*)data + total_size);
@@ -179,10 +185,6 @@ protected:
             num_radios, (wifi_radio_stat *)radioStatsBuf);
         }
 exit:
-        if (radio_stat_ptr) {
-            free(radio_stat_ptr);
-            radio_stat_ptr = NULL;
-        }
         if (radioStatsBuf) {
             free(radioStatsBuf);
             radioStatsBuf = NULL;
