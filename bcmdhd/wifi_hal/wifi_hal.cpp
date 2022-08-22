@@ -47,10 +47,10 @@
 #define LOG_TAG  "WifiHAL"
 #include <log/log.h>
 
-#include "wifi_hal.h"
+#include <hardware_legacy/wifi_hal.h>
+#include <hardware_legacy/rtt.h>
 #include "common.h"
 #include "cpp_bindings.h"
-#include "rtt.h"
 #include "brcm_version.h"
 #include <stdio.h>
 #include <string>
