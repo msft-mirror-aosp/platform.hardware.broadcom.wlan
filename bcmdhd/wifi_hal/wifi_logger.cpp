@@ -45,7 +45,7 @@
 
 #include <log/log.h>
 
-#include "wifi_hal.h"
+#include <hardware_legacy/wifi_hal.h>
 #include "common.h"
 #include "cpp_bindings.h"
 #include <sys/stat.h>
@@ -1073,7 +1073,7 @@ public:
             unregisterVendorHandler(GOOGLE_OUI, GOOGLE_DEBUG_RING_EVENT);
             ALOGV("Hal preInit Failed to put pid= %d", result);
             return result;
-        } 
+        }
 
         request.attr_end(data);
 
@@ -1153,10 +1153,10 @@ public:
             if (mHandler.on_ring_buffer_data) {
                 /* Skip msg header. Retrieved log */
                 char *pBuff;
-                wifi_ring_buffer_entry *buffer_entry = 
+                wifi_ring_buffer_entry *buffer_entry =
                             (wifi_ring_buffer_entry *) buffer;
                 pBuff = (char *) (buffer_entry + 1);
-                (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff, 
+                (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff,
                     buffer_entry->entry_size, &status);
             }
         } else {
