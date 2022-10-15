@@ -1035,6 +1035,12 @@ wifi_error wifi_start_logging(wifi_interface_handle iface, u32 verbose_level,
     }
 }
 
+typedef struct {
+    u32 magic;
+    int num_entries;
+} __attribute__((packed)) wifi_ring_buffer_entry_pack;
+
+#define WIFI_RING_BUFFER_PACK_MAGIC 0xDBAADBAA
 
 ///////////////////////////////////////////////////////////////////////////////
 class SetLogHandler : public WifiCommand
@@ -1153,11 +1159,46 @@ public:
             if (mHandler.on_ring_buffer_data) {
                 /* Skip msg header. Retrieved log */
                 char *pBuff;
-                wifi_ring_buffer_entry *buffer_entry = 
-                            (wifi_ring_buffer_entry *) buffer;
-                pBuff = (char *) (buffer_entry + 1);
-                (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff, 
-                    buffer_entry->entry_size, &status);
+                int num_entries;
+                int cur_off = 0;
+                wifi_ring_buffer_entry_pack *pack_hdr =
+                    (wifi_ring_buffer_entry_pack *)buffer;
+                wifi_ring_buffer_entry *entry_hdr =
+                    (wifi_ring_buffer_entry *)(buffer + sizeof(*pack_hdr));
+                cur_off += sizeof(*pack_hdr);
+
+                if (pack_hdr->magic != WIFI_RING_BUFFER_PACK_MAGIC) {
+                    ALOGE("SetLogHandler: magic code is not matched "
+                        "magic:%u ring_name:%s\n", pack_hdr->magic, status.name);
+                    return NL_SKIP;
+                }
+
+                num_entries = pack_hdr->num_entries;
+
+                while (num_entries > 0) {
+                    /* Check for accesses that exceed the total buffer size */
+                    if (cur_off + sizeof(*entry_hdr) + entry_hdr->entry_size > buffer_size) {
+                        ALOGE("SetLogHandler: detected invalid access "
+                            "num_entries:%d cur_num:%d buffer_size:%d cur_off:%d "
+                            "hdrsize:%lu entry_size:%d ring_name:%s\n",
+                            pack_hdr->num_entries, num_entries, buffer_size, cur_off,
+                            sizeof(*entry_hdr), entry_hdr->entry_size, status.name);
+                        return NL_SKIP;
+                    }
+
+                    /* Copy buffer without hdr to the ringbuffer in LegacyHAL */
+                    pBuff = (char *)entry_hdr + sizeof(*entry_hdr);
+                    (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff,
+                        entry_hdr->entry_size, &status);
+
+                    cur_off += sizeof(*entry_hdr) + entry_hdr->entry_size;
+
+                    /* jump to next entry_hdr */
+                    entry_hdr = (wifi_ring_buffer_entry *)((char *)entry_hdr + sizeof(*entry_hdr) + entry_hdr->entry_size);
+
+                    num_entries--;
+                }
+
             }
         } else {
             ALOGE("Unknown Event");
