@@ -662,6 +662,7 @@ wifi_error wifi_rtt_range_request(wifi_request_id id, wifi_interface_handle ifac
 	return WIFI_ERROR_INVALID_ARGS;
     }
 
+    ALOGI("Rtt range_request; id = %d", id);
     RttCommand *cmd = new RttCommand(iface, id, num_rtt_config, rtt_config, handler);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     wifi_error result = wifi_register_cmd(handle, id, cmd);
@@ -695,9 +696,11 @@ wifi_error wifi_rtt_range_cancel(wifi_request_id id,  wifi_interface_handle ifac
 	return WIFI_ERROR_INVALID_ARGS;
     }
 
+    ALOGI("Rtt range_cancel_request; id = %d", id);
     RttCommand *cmd = new RttCommand(iface, id);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     cmd->cancel_specific(num_devices, addr);
+    wifi_unregister_cmd(handle, id);
     cmd->releaseRef();
     return WIFI_SUCCESS;
 }
