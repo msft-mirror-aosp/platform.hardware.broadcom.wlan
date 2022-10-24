@@ -385,6 +385,7 @@ static int is_cmd_response(int cmd);
 static int get_svc_hash(unsigned char *svc_name, u16 svc_name_len,
         u8 *svc_hash, u16 svc_hash_len);
 NanResponseType get_response_type(WIFI_SUB_COMMAND nan_subcmd);
+NanResponseType get_response_type_frm_req_type(NanRequestType cmdType);
 static NanStatusType nan_map_response_status(int vendor_status);
 
 /* Function to separate the common events to NAN1.0 events */
@@ -1839,40 +1840,69 @@ class NanDataPathPrimitive : public WifiCommand
 
     int createDataPathIfaceRequest(WifiRequest& request, char *iface_name)
     {
-        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_DATA_PATH_IFACE_CREATE);
+        ALOGD("add ifname = %s, iface_type = %d", iface_name, NL80211_IFTYPE_STATION);
+        u32 wlan0_id = if_nametoindex("wlan0");
+        if (!wlan0_id) {
+            ALOGE("%s: Error wlan0 not present\n", __FUNCTION__);
+            return WIFI_ERROR_UNKNOWN;
+        }
+
+        /* Do not create interface if already exist. */
+        if (if_nametoindex(iface_name)) {
+            ALOGD("%s: if_nametoindex(%s) = %d already exists, skip create \n",
+                __FUNCTION__, iface_name, if_nametoindex(iface_name));
+            return WIFI_SUCCESS;
+        }
+
+        int result = request.create(NL80211_CMD_NEW_INTERFACE);
         if (result < 0) {
-            ALOGE("%s Failed to create request\n", __func__);
+            ALOGE("failed to create NL80211_CMD_NEW_INTERFACE; result = %d", result);
             return result;
         }
 
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-        result = request.put_string(NAN_ATTRIBUTE_IFACE, (char *)iface_name);
+        result = request.put_u32(NL80211_ATTR_IFINDEX, wlan0_id);
         if (result < 0) {
-            ALOGE("%s: Failed to fill iface, result = %d\n", __func__, result);
+            ALOGE("failed to put NL80211_ATTR_IFINDEX; result = %d", result);
             return result;
         }
 
-        request.attr_end(data);
+        result = request.put_string(NL80211_ATTR_IFNAME, iface_name);
+        if (result < 0) {
+            ALOGE("failed to put NL80211_ATTR_IFNAME = %s; result = %d", iface_name, result);
+            return result;
+        }
+
+        result = request.put_u32(NL80211_ATTR_IFTYPE, NL80211_IFTYPE_STATION);
+        if (result < 0) {
+            ALOGE("failed to put NL80211_ATTR_IFTYPE; result = %d", result);
+            return result;
+        }
+
         return WIFI_SUCCESS;
     }
 
     int deleteDataPathIfaceRequest(WifiRequest& request, char *iface_name)
     {
-        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_DATA_PATH_IFACE_DELETE);
+        ALOGD("delete ifname = %s\n", iface_name);
+
+        int result = request.create(NL80211_CMD_DEL_INTERFACE);
         if (result < 0) {
-            ALOGE("%s: Failed to create request, result = %d\n", __func__, result);
+            ALOGE("failed to create NL80211_CMD_DEL_INTERFACE; result = %d", result);
             return result;
         }
 
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-
-        result = request.put_string(NAN_ATTRIBUTE_IFACE, (char *)iface_name);
+        result = request.put_u32(NL80211_ATTR_IFINDEX, if_nametoindex(iface_name));
         if (result < 0) {
-            ALOGE("%s: Failed to fill iface, result = %d\n", __func__, result);
+            ALOGE("failed to put NL80211_ATTR_IFINDEX = %d; result = %d",
+                if_nametoindex(iface_name), result);
             return result;
         }
 
-        request.attr_end(data);
+        result = request.put_string(NL80211_ATTR_IFNAME, iface_name);
+        if (result < 0) {
+            ALOGE("failed to put NL80211_ATTR_IFNAME = %s; result = %d", iface_name, result);
+            return result;
+        }
         return WIFI_SUCCESS;
     }
 
@@ -2296,7 +2326,23 @@ class NanDataPathPrimitive : public WifiCommand
             ALOGE("%s: failed to configure setup; result = %d", __func__, result);
             return result;
         }
-
+        ALOGI("NanDataPathPrmitive::request Response\n");
+        if (mType == NAN_DATA_PATH_IFACE_DELETE) {
+            NanResponseMsg rsp_data;
+            memset(&rsp_data, 0, sizeof(NanResponseMsg));
+            /* Prepare the NanResponseMsg payload */
+            rsp_data.response_type = get_response_type_frm_req_type((NanRequestType)mType);
+            /* Return success even for no dev case also, nothing to do */
+            rsp_data.status = NAN_STATUS_SUCCESS;
+            memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
+                strlen(NanStatusToString(rsp_data.status)));
+            rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
+            rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
+            ALOGI("Mapped hal status = %d\n", rsp_data.status);
+            ALOGI("Received nan_error string %s\n", (u8*)rsp_data.nan_error);
+            GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
+            ALOGE("Notified by cmd ret!!");
+        }
         request.destroy();
         return WIFI_SUCCESS;
     }
@@ -2321,49 +2367,63 @@ class NanDataPathPrimitive : public WifiCommand
     int handleResponse(WifiEvent& reply)
     {
         nan_hal_resp_t *rsp_vndr_data = NULL;
+        NanResponseMsg rsp_data;
+        int32_t result = BCME_OK;
 
-        if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
+        ALOGI("NanDataPathPrmitive::handle Response\n");
+        memset(&rsp_data, 0, sizeof(NanResponseMsg));
+        if (mType == NAN_DATA_PATH_IFACE_CREATE) {
+             /* NDI creation and deletion are done through vendor ops,
+              * driver does not send the cmd response payload,
+              * but for framework,
+              * mimicking the NanResponseMsg for iface create and delete nan cmds
+              */
+             rsp_data.response_type = get_response_type_frm_req_type((NanRequestType)mType);
+             /* Return success even for no dev case also, nothing to do */
+             if (result == WIFI_SUCCESS || result == WIFI_ERROR_NOT_AVAILABLE) {
+                 rsp_data.status = NAN_STATUS_SUCCESS;
+             } else {
+                 rsp_data.status = NAN_STATUS_INTERNAL_FAILURE;
+             }
+         } else if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
             return NL_SKIP;
+        } else {
+            rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
+            result = rsp_vndr_data->value;
+            rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
+
+            if ((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd == NAN_SUBCMD_DATA_PATH_SEC_INFO) {
+                /* Follow through */
+            } else if (!valid_dp_response_type(rsp_data.response_type)) {
+               return NL_SKIP;
+            }
+            rsp_data.status = nan_map_response_status(rsp_vndr_data->status);
+
+            if (rsp_data.response_type == NAN_DP_INITIATOR_RESPONSE) {
+                ALOGI("received ndp instance_id %d and ret = %d\n",
+                    rsp_vndr_data->ndp_instance_id, result);
+                rsp_data.body.data_request_response.ndp_instance_id =
+                    rsp_vndr_data->ndp_instance_id;
+                mNdpId = rsp_vndr_data->ndp_instance_id;
+            } else if ((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd == NAN_SUBCMD_DATA_PATH_SEC_INFO) {
+                memcpy(mPubNmi, rsp_vndr_data->pub_nmi, NAN_MAC_ADDR_LEN);
+                memcpy(mSvcHash, rsp_vndr_data->svc_hash, NAN_SVC_HASH_SIZE);
+                return NL_SKIP;
+            }
         }
 
-        rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
-        ALOGI("NanDataPathPrmitive::handle response\n");
-        int32_t result = rsp_vndr_data->value;
-        NanResponseMsg rsp_data;
-
-        memset(&rsp_data, 0, sizeof(NanResponseMsg));
-        rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
-
-        if ((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd == NAN_SUBCMD_DATA_PATH_SEC_INFO) {
-            /* Follow through */
-        } else if (!valid_dp_response_type(rsp_data.response_type)) {
-            return NL_SKIP;
-        }
-        rsp_data.status = nan_map_response_status(rsp_vndr_data->status);
-        ALOGE("Mapped hal status = %d\n", rsp_data.status);
-
-        if (rsp_vndr_data->nan_reason[0] == '\0') {
-            memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
-                    strlen(NanStatusToString(rsp_data.status)));
-            rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
-        }
+        memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
+            strlen(NanStatusToString(rsp_data.status)));
+        rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
         rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
-        ALOGI("\n Received nan_error string %s\n", (u8*)rsp_data.nan_error);
 
-        if (rsp_data.response_type == NAN_DP_INITIATOR_RESPONSE) {
-            ALOGI("received ndp instance_id %d and ret = %d\n", rsp_vndr_data->ndp_instance_id, result);
-            rsp_data.body.data_request_response.ndp_instance_id = rsp_vndr_data->ndp_instance_id;
-            mNdpId = rsp_vndr_data->ndp_instance_id;
-        } else if ((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd == NAN_SUBCMD_DATA_PATH_SEC_INFO) {
-            memcpy(mPubNmi, rsp_vndr_data->pub_nmi, NAN_MAC_ADDR_LEN);
-            memcpy(mSvcHash, rsp_vndr_data->svc_hash, NAN_SVC_HASH_SIZE);
-            return NL_SKIP;
-        }
-
+        ALOGI("Mapped hal status = %d\n", rsp_data.status);
+        ALOGI("Received nan_error string %s\n", (u8*)rsp_data.nan_error);
         ALOGI("NanDataPathPrmitive:Received response for cmd [%s], ret %d\n",
-                NanRspToString(rsp_data.response_type), rsp_data.status);
+            NanRspToString(rsp_data.response_type), rsp_data.status);
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
+        ALOGE("Notified by cmd reply!!");
         return NL_SKIP;
     }
 
@@ -3862,6 +3922,27 @@ NanResponseType get_response_type(WIFI_SUB_COMMAND nan_subcmd)
     }
 
     return response_type;
+}
+
+
+NanResponseType get_response_type_frm_req_type(NanRequestType cmdType) {
+    NanResponseType response_type;
+
+    switch (cmdType) {
+        case NAN_DATA_PATH_IFACE_CREATE:
+            response_type = NAN_DP_INTERFACE_CREATE;
+            break;
+        case NAN_DATA_PATH_IFACE_DELETE:
+            response_type = NAN_DP_INTERFACE_DELETE;
+            break;
+        default:
+            /* unknown response for a request type */
+            response_type = NAN_RESPONSE_ERROR;
+            break;
+    }
+
+    return response_type;
+
 }
 
 static int get_svc_hash(unsigned char *svc_name,
