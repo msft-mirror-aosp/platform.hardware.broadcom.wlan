@@ -1684,9 +1684,6 @@ public:
                 ring_name[i] = NULL;
             }
         }
-        if (mBuff) {
-            free(mBuff);
-        }
 
         DUMP_INFO(("Stop Ring Dump Successfully Completed, mErrCode = %d\n", mErrCode));
         return WIFI_SUCCESS;
