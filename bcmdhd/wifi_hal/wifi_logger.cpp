@@ -1239,6 +1239,10 @@ wifi_error wifi_reset_log_handler(wifi_request_id id, wifi_interface_handle ifac
     wifi_handle handle = getWifiHandle(iface);
     ALOGE("Loghandler reset, wifi_request_id = %d, handle = %p", id, handle);
 
+#ifdef RING_DUMP
+    wifi_stop_ring_dump(iface);
+#endif /* RING_DUMP */
+
     if (id == -1) {
         wifi_ring_buffer_data_handler handler;
         memset(&handler, 0, sizeof(handler));
@@ -1248,9 +1252,6 @@ wifi_error wifi_reset_log_handler(wifi_request_id id, wifi_interface_handle ifac
         cmd->cancel();
         cmd->releaseRef();
 
-#ifdef RING_DUMP
-        wifi_stop_ring_dump(iface, handler);
-#endif /* RING_DUMP */
         return WIFI_SUCCESS;
     }
 
@@ -2022,8 +2023,7 @@ wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
     return result;
 }
 
-wifi_error wifi_stop_ring_dump(wifi_interface_handle iface,
-    wifi_ring_buffer_data_handler ring_handle)
+wifi_error wifi_stop_ring_dump(wifi_interface_handle iface)
 {
     RingDump *cmd = new RingDump(iface, FILE_DUMP_REQUEST_ID);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
