@@ -1386,6 +1386,8 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_specific_info_len > 0) {
+            u16 len = min(mParams->service_specific_info_len,
+                          sizeof(mParams->service_specific_info) - 1);
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->service_specific_info_len);
             if (result < 0) {
@@ -1400,7 +1402,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 ALOGE("%s: Failed to put svc info, result = %d", __func__, result);
                 return result;
             }
-            mParams->service_specific_info[mParams->service_specific_info_len] = '\0';
+            mParams->service_specific_info[len] = '\0';
             ALOGI("Transmit service info string is %s\n", mParams->service_specific_info);
         }
 
