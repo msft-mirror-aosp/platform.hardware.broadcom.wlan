@@ -702,6 +702,8 @@ class NanDiscEnginePrimitive : public WifiCommand
 
         if (mParams->service_name_len) {
             u8 svc_hash[NAN_SVC_HASH_SIZE];
+            u16 len = min(mParams->service_name_len, sizeof(mParams->service_name) - 1);
+            mParams->service_name[len] = '\0';
 
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
                     svc_hash, NAN_SVC_HASH_SIZE);
@@ -1066,6 +1068,8 @@ class NanDiscEnginePrimitive : public WifiCommand
 
         if (mParams->service_name_len) {
             u8 svc_hash[NAN_SVC_HASH_SIZE];
+            u16 len = min(mParams->service_name_len, sizeof(mParams->service_name) - 1);
+            mParams->service_name[len] = '\0';
 
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
                     svc_hash, NAN_SVC_HASH_SIZE);
@@ -5429,6 +5433,9 @@ wifi_error nan_data_request_initiator(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_req++;
     if (msg->service_name_len) {
+        u16 len = min(msg->service_name_len, sizeof(msg->service_name) - 1);
+        msg->service_name[len] = '\0';
+
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
@@ -5514,6 +5521,9 @@ wifi_error nan_data_indication_response(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_resp++;
     if (msg->service_name_len) {
+        u16 len = min(msg->service_name_len, sizeof(msg->service_name) - 1);
+        msg->service_name[len] = '\0';
+
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
