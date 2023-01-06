@@ -100,6 +100,8 @@ static wifi_error wifi_get_supported_radio_combinations_matrix(wifi_handle handl
 static void wifi_cleanup_dynamic_ifaces(wifi_handle handle);
 static wifi_error wifi_enable_tx_power_limits(wifi_interface_handle iface,
         bool isEnable);
+wifi_error wifi_get_cached_scan_results(wifi_interface_handle iface,
+    wifi_cached_scan_result_handler handler);
 
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
@@ -355,7 +357,7 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_nan_rtt_chre_disable_request = nan_chre_disable_request;
     fn->wifi_chre_register_handler = nan_chre_register_handler;
     fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
-
+    fn->wifi_get_cached_scan_results = wifi_get_cached_scan_results;
     return WIFI_SUCCESS;
 }
 #ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
