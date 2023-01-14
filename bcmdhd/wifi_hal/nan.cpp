@@ -1510,11 +1510,13 @@ class NanDiscEnginePrimitive : public WifiCommand
     {
         nan_hal_resp_t *rsp_vndr_data = NULL;
         NanResponseMsg rsp_data;
+        u32 len;
         if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
             return NL_SKIP;
         }
         rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
+        len = reply.get_vendor_data_len();
         ALOGI("NanDiscEnginePrmitive::handle response\n");
         memset(&rsp_data, 0, sizeof(NanResponseMsg));
         rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
@@ -1544,7 +1546,7 @@ class NanDiscEnginePrimitive : public WifiCommand
             rsp_data.body.subscribe_response.subscribe_id = mInstId;
         } else if (rsp_data.response_type == NAN_GET_CAPABILITIES) {
             memcpy((void *)&rsp_data.body.nan_capabilities, (void *)&rsp_vndr_data->capabilities,
-                    sizeof(rsp_data.body.nan_capabilities));
+                    min(len, sizeof(rsp_data.body.nan_capabilities)));
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
