@@ -1545,6 +1545,28 @@ class NanDiscEnginePrimitive : public WifiCommand
         } else if (rsp_data.response_type == NAN_GET_CAPABILITIES) {
             memcpy((void *)&rsp_data.body.nan_capabilities, (void *)&rsp_vndr_data->capabilities,
                     min(len, sizeof(rsp_data.body.nan_capabilities)));
+            /* avoid memcpy to keep backward compatibility */
+            NanCapabilities *desc = &rsp_data.body.nan_capabilities;
+            NanCapabilities *src = &rsp_vndr_data->capabilities;
+
+            desc->max_publishes = src->max_publishes;
+            desc->max_subscribes = src->max_subscribes;
+            desc->max_ndi_interfaces = src->max_ndi_interfaces;
+            desc->max_ndp_sessions = src->max_ndp_sessions;
+            desc->max_concurrent_nan_clusters = src->max_concurrent_nan_clusters;
+            desc->max_service_name_len = src->max_service_name_len;
+            desc->max_match_filter_len = src->max_match_filter_len;
+            desc->max_total_match_filter_len = src->max_total_match_filter_len;
+            desc->max_service_specific_info_len = src->max_service_specific_info_len;
+            desc->max_app_info_len = src->max_app_info_len;
+            desc->max_sdea_service_specific_info_len = src->max_sdea_service_specific_info_len;
+            desc->max_queued_transmit_followup_msgs = src->max_queued_transmit_followup_msgs;
+            desc->max_subscribe_address = src->max_subscribe_address;
+            desc->is_ndp_security_supported = src->is_ndp_security_supported;
+            desc->ndp_supported_bands = src->ndp_supported_bands;
+            desc->cipher_suites_supported = src->cipher_suites_supported;
+            desc->is_instant_mode_supported = src->is_instant_mode_supported;
+            desc->ndpe_attr_supported = src->ndpe_attr_supported;
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
