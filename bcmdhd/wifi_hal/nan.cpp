@@ -1543,8 +1543,6 @@ class NanDiscEnginePrimitive : public WifiCommand
         } else if (rsp_data.response_type == NAN_RESPONSE_SUBSCRIBE) {
             rsp_data.body.subscribe_response.subscribe_id = mInstId;
         } else if (rsp_data.response_type == NAN_GET_CAPABILITIES) {
-            memcpy((void *)&rsp_data.body.nan_capabilities, (void *)&rsp_vndr_data->capabilities,
-                    min(len, sizeof(rsp_data.body.nan_capabilities)));
             /* avoid memcpy to keep backward compatibility */
             NanCapabilities *desc = &rsp_data.body.nan_capabilities;
             NanCapabilities *src = &rsp_vndr_data->capabilities;
