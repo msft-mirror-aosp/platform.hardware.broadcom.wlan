@@ -460,8 +460,7 @@ wifi_interface_handle wifi_get_wlan_interface(wifi_handle info,
 #ifdef RING_DUMP
 wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
             wifi_ring_buffer_data_handler ring_handle);
-wifi_error wifi_stop_ring_dump(wifi_interface_handle iface,
-            wifi_ring_buffer_data_handler ring_handle);
+wifi_error wifi_stop_ring_dump(wifi_interface_handle iface);
 #endif /* RING_DUMP */
 wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version);
 wifi_error wifi_hal_preInit(wifi_interface_handle iface);

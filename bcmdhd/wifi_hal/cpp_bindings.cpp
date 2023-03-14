@@ -601,6 +601,9 @@ static int mapErrorCodes(int err)
         case -EBUSY:
             ret = WIFI_ERROR_BUSY;
             break;
+        case -ENODEV:
+            ret = WIFI_ERROR_NOT_AVAILABLE;
+            break;
         default:
             ret = WIFI_ERROR_UNKNOWN;
     }
