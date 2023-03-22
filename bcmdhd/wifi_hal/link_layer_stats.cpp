@@ -47,7 +47,8 @@ typedef enum {
     ANDR_WIFI_ATTRIBUTE_INVALID        = 0,
     ANDR_WIFI_ATTRIBUTE_NUM_RADIO      = 1,
     ANDR_WIFI_ATTRIBUTE_STATS_INFO     = 2,
-    ANDR_WIFI_ATTRIBUTE_STATS_MAX      = 3
+    ANDR_WIFI_ATTRIBUTE_ML_STATS_INFO  = 3,
+    ANDR_WIFI_ATTRIBUTE_STATS_MAX      = 4
 } LINK_STAT_ATTRIBUTE;
 
 /* Internal radio statistics structure in the driver */
@@ -92,9 +93,10 @@ public:
 
 protected:
     virtual int handleResponse(WifiEvent& reply) {
+        bool ml_data = false;
         void *data = NULL;
         wifi_radio_stat *radio_stat_ptr = NULL;
-        u8 *iface_stat = NULL;
+        u8 *iface_stat = NULL, *iface_ml_stat = NULL;
         u8 *radioStatsBuf = NULL, *output = NULL, *data_ptr = NULL;
         uint32_t total_size = 0, per_radio_size = 0, data_len = 0, rem_len = 0;
         int num_radios = 0, id = 0, subcmd = 0, len = 0;
@@ -123,19 +125,17 @@ protected:
             } else if (it.get_type() == ANDR_WIFI_ATTRIBUTE_STATS_INFO) {
                 data = it.get_data();
                 data_len = it.get_len();
+            } else if (it.get_type() == ANDR_WIFI_ATTRIBUTE_ML_STATS_INFO) {
+                data = it.get_data();
+                data_len = it.get_len();
+                ml_data = true;
             } else {
-                ALOGW("Ignoring invalid attribute type = %d, size = %d\n",
+                ALOGW("Ignoring invalid attribute type = %d, size = %d",
                 it.get_type(), it.get_len());
-                return NL_SKIP;
             }
         }
 
         if (num_radios) {
-            if (!data || !data_len) {
-                ALOGE("%s: null data\n", __func__);
-                return NL_SKIP;
-            }
-
             rem_len = MAX_CMD_RESP_BUF_LEN;
             radioStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
             if (!radioStatsBuf) {
@@ -145,6 +145,10 @@ protected:
             memset(radioStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
             output = radioStatsBuf;
 
+            if (!data || !data_len) {
+                ALOGE("%s: null data\n", __func__);
+                goto exit;
+            }
             data_ptr = (u8*)data;
             for (int i = 0; i < num_radios; i++) {
                 rem_len -= per_radio_size;
@@ -161,30 +165,43 @@ protected:
                     convertToExternalRadioStatStructure((wifi_radio_stat*)data_ptr,
                         &per_radio_size);
                 if (!radio_stat_ptr || !per_radio_size) {
-                    if (radio_stat_ptr) {
-                        free(radio_stat_ptr);
-                        radio_stat_ptr = NULL;
-                    }
                     ALOGE("No data for radio %d\n", i);
                     continue;
                 }
                 memcpy(output, radio_stat_ptr, per_radio_size);
                 output += per_radio_size;
                 total_size += per_radio_size;
-                free(radio_stat_ptr);
-                radio_stat_ptr = NULL;
             }
 
-            iface_stat = ((u8*)data + total_size);
-            if (!iface_stat || data_len < total_size) {
+            if (ml_data && (data_len >= (total_size + sizeof(wifi_iface_ml_stat)))) {
+                iface_ml_stat = ((u8*)data + total_size);
+                if (!iface_ml_stat) {
+                    ALOGE("No iface ml stats data!!, data_len = %d, total_size = %d\n",
+                        data_len, total_size);
+                    goto exit;
+                }
+                (*mHandler.on_multi_link_stats_results)(id, (wifi_iface_ml_stat *)iface_ml_stat,
+                    num_radios, (wifi_radio_stat *)radioStatsBuf);
+            } else if ((data_len >= (total_size + sizeof(wifi_iface_stat)))) {
+                iface_stat = ((u8*)data + total_size);
+                if (!iface_stat) {
+                    ALOGE("No data for legacy iface stats!!, data_len = %d, total_size = %d\n",
+                        data_len, total_size);
+                    goto exit;
+                }
+                (*mHandler.on_link_stats_results)(id, (wifi_iface_stat *)iface_stat,
+                    num_radios, (wifi_radio_stat *)radioStatsBuf);
+            } else {
                 ALOGE("No data for iface stats!!, data_len = %d, total_size = %d\n",
                     data_len, total_size);
                 goto exit;
             }
-            (*mHandler.on_link_stats_results)(id, (wifi_iface_stat *)iface_stat,
-            num_radios, (wifi_radio_stat *)radioStatsBuf);
         }
 exit:
+        if (radio_stat_ptr) {
+            free(radio_stat_ptr);
+            radio_stat_ptr = NULL;
+        }
         if (radioStatsBuf) {
             free(radioStatsBuf);
             radioStatsBuf = NULL;
