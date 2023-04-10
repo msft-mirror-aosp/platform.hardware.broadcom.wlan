@@ -1390,8 +1390,6 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_specific_info_len > 0) {
-            u16 len = min(mParams->service_specific_info_len,
-                          sizeof(mParams->service_specific_info) - 1);
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->service_specific_info_len);
             if (result < 0) {
@@ -1406,7 +1404,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 ALOGE("%s: Failed to put svc info, result = %d", __func__, result);
                 return result;
             }
-            mParams->service_specific_info[len] = '\0';
+            mParams->service_specific_info[mParams->service_specific_info_len] = '\0';
             ALOGI("Transmit service info string is %s\n", mParams->service_specific_info);
         }
 
@@ -1545,8 +1543,28 @@ class NanDiscEnginePrimitive : public WifiCommand
         } else if (rsp_data.response_type == NAN_RESPONSE_SUBSCRIBE) {
             rsp_data.body.subscribe_response.subscribe_id = mInstId;
         } else if (rsp_data.response_type == NAN_GET_CAPABILITIES) {
-            memcpy((void *)&rsp_data.body.nan_capabilities, (void *)&rsp_vndr_data->capabilities,
-                    min(len, sizeof(rsp_data.body.nan_capabilities)));
+            /* avoid memcpy to keep backward compatibility */
+            NanCapabilities *desc = &rsp_data.body.nan_capabilities;
+            NanCapabilities *src = &rsp_vndr_data->capabilities;
+
+            desc->max_publishes = src->max_publishes;
+            desc->max_subscribes = src->max_subscribes;
+            desc->max_ndi_interfaces = src->max_ndi_interfaces;
+            desc->max_ndp_sessions = src->max_ndp_sessions;
+            desc->max_concurrent_nan_clusters = src->max_concurrent_nan_clusters;
+            desc->max_service_name_len = src->max_service_name_len;
+            desc->max_match_filter_len = src->max_match_filter_len;
+            desc->max_total_match_filter_len = src->max_total_match_filter_len;
+            desc->max_service_specific_info_len = src->max_service_specific_info_len;
+            desc->max_app_info_len = src->max_app_info_len;
+            desc->max_sdea_service_specific_info_len = src->max_sdea_service_specific_info_len;
+            desc->max_queued_transmit_followup_msgs = src->max_queued_transmit_followup_msgs;
+            desc->max_subscribe_address = src->max_subscribe_address;
+            desc->is_ndp_security_supported = src->is_ndp_security_supported;
+            desc->ndp_supported_bands = src->ndp_supported_bands;
+            desc->cipher_suites_supported = src->cipher_suites_supported;
+            desc->is_instant_mode_supported = src->is_instant_mode_supported;
+            desc->ndpe_attr_supported = src->ndpe_attr_supported;
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);

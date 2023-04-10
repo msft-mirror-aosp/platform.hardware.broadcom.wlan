@@ -191,6 +191,7 @@ typedef enum {
     WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION,         /* 0x101c */
     WIFI_SUBCMD_SET_MULTISTA_USE_CASE,                   /* 0x101d */
     WIFI_SUBCMD_SET_DTIM_CONFIG,                         /* 0x101e */
+    WIFI_SUBCMD_CHANNEL_POLICY,                          /* 0x101f */
 
     GSCAN_SUBCMD_MAX,
 
