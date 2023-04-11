@@ -577,7 +577,7 @@ public:
                     } else if (it2.get_type() == RTT_ATTRIBUTE_RESULT_FREQ) {
                         channel = it2.get_u32();
                         if (rttResults[currentIdx] == NULL) {
-                            ALOGE("Not allocated\n");
+                            ALOGE("Not allocated, currentIdx %d\n", currentIdx);
                             break;
                         }
                         if (!channel) {
@@ -590,7 +590,7 @@ public:
                     } else if (it2.get_type() == RTT_ATTRIBUTE_RESULT_BW) {
                         bw = (wifi_rtt_bw)it2.get_u32();
                         if (rttResults[currentIdx] == NULL) {
-                            ALOGE("Not allocated\n");
+                            ALOGE("Not allocated, currentIdx %d\n", currentIdx);
                             break;
                         }
                         rttResults[currentIdx]->packet_bw = bw;
@@ -665,7 +665,7 @@ public:
                         memcpy(&rtt_result_v2->rtt_result,
                             (wifi_rtt_result *)rtt_results_v1, RTT_RESULT_V1_SIZE);
                         if (!channel) {
-                            rtt_result_v2->frequency = WIFI_CHAN_WIDTH_INVALID;
+                            rtt_result_v2->frequency = UNSPECIFIED;
                         }
 
                         /* Copy the optional data to new struct */
@@ -706,7 +706,8 @@ public:
                                 rtt_results_v1->distance_mm / 10,
                                 rtt_results_v1->burst_duration,
                                 rtt_results_v1->negotiated_burst_num);
-                        nextidx = currentIdx++;
+                        nextidx = currentIdx;
+                        nextidx++;
                     }
                 }
             }
