@@ -1658,6 +1658,7 @@ public:
         : WifiCommand("RingDump", iface, id), mLargestBuffSize(0), mBuff(NULL),
         mErrCode(0)
     {
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
     }
 
     int start() {
@@ -1698,6 +1699,7 @@ public:
                 ring_name[i] = NULL;
             }
         }
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
 
         DUMP_INFO(("Stop Ring Dump Successfully Completed, mErrCode = %d\n", mErrCode));
         return WIFI_SUCCESS;
