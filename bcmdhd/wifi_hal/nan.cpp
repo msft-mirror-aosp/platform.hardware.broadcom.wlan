@@ -2469,8 +2469,11 @@ class NanDataPathPrimitive : public WifiCommand
              } else {
                  rsp_data.status = NAN_STATUS_INTERNAL_FAILURE;
              }
-         } else if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
-            ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
+        } else if (reply.get_cmd() != NL80211_CMD_VENDOR ||
+                    reply.get_vendor_data() == NULL ||
+                    reply.get_vendor_data_len() != sizeof(nan_hal_resp_t)) {
+            ALOGD("Ignoring reply with cmd = %d mType = %d len = %d\n",
+                    reply.get_cmd(), mType, reply.get_vendor_data_len());
             return NL_SKIP;
         } else {
             rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
