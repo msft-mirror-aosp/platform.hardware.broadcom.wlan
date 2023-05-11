@@ -88,7 +88,8 @@ typedef enum {
 
 typedef enum {
     NVRAM,
-    CLM_BLOB
+    CLM_BLOB,
+    TXCAP_BLOB
 } OTA_TYPE;
 
 char ota_nvram_ext[10];
@@ -2819,6 +2820,10 @@ wifi_error check_multiple_nvram_clm(uint32_t type, char* hw_revision, char* hw_s
     else if (type == NVRAM) {
         sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_NVRAM_FILE);
     }
+    else if (type == TXCAP_BLOB) {
+        sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_TXCAP_BLOB_FILE);
+    }
+
     for (unsigned int i = 0; i < MAX_NV_FILE; i++) {
         memset(file_name[i], 0, FILE_NAME_LEN);
     }
@@ -2843,7 +2848,6 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     wifi_handle handle = getWifiHandle(iface);
     wifi_error result = WIFI_SUCCESS;
     ota_info_buf_t buf;
-    char txcap_blob_file_name[FILE_NAME_LEN];
     char *buffer_nvram = NULL;
     char *buffer_clm = NULL;
     char *buffer_txcap_blob = NULL;
@@ -2881,10 +2885,8 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     }
     buf.ota_clm_buf[0] = buffer_clm;
 
-    memset(txcap_blob_file_name, 0, FILE_NAME_LEN);
-    sprintf(txcap_blob_file_name, "%s%s", OTA_PATH, OTA_TXCAP_BLOB_FILE);
-    ALOGE("[OTA] PATH TXCAP BLOB %s", txcap_blob_file_name);
-    read_ota_file(txcap_blob_file_name, &buffer_txcap_blob, &buf.ota_txcap_len);
+    check_multiple_nvram_clm(TXCAP_BLOB, prop_revision_buf, sku_name,
+        &buffer_txcap_blob, &buf.ota_txcap_len);
     if (buffer_txcap_blob == NULL) {
         ALOGE("buffer_txcap_blob is null");
         goto exit;
