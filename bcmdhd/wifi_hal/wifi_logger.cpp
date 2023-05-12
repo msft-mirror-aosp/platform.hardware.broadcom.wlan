@@ -81,13 +81,15 @@ typedef enum {
 #define MAX_SKU_NAME_LEN 5
 #define OTA_PATH "/data/vendor/firmware/wifi/"
 #define OTA_CLM_FILE "bcmdhd_clm.blob"
+#define OTA_TXCAP_BLOB_FILE "bcmdhd_txcap.blob"
 #define OTA_NVRAM_FILE "bcmdhd.cal"
 #define HW_DEV_PROP "ro.revision"
 #define HW_SKU_PROP "ro.boot.hardware.sku"
 
 typedef enum {
     NVRAM,
-    CLM_BLOB
+    CLM_BLOB,
+    TXCAP_BLOB
 } OTA_TYPE;
 
 char ota_nvram_ext[10];
@@ -96,6 +98,8 @@ typedef struct ota_info_buf {
     const void *ota_clm_buf[1];
     u32 ota_nvram_len;
     const void *ota_nvram_buf[1];
+    u32 ota_txcap_len;
+    const void *ota_txcap_buf[1];
 } ota_info_buf_t;
 u32 applied_ota_version = 0;
 
@@ -189,6 +193,8 @@ typedef enum {
     OTA_DOWNLOAD_NVRAM_ATTR         = 0x0004,
     OTA_SET_FORCE_REG_ON            = 0x0005,
     OTA_CUR_NVRAM_EXT_ATTR          = 0x0006,
+    OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR    = 0x0007,
+    OTA_DOWNLOAD_TXCAP_BLOB_ATTR           = 0x0008,
 } OTA_DOWNLOAD_ATTRIBUTE;
 
 #define HAL_START_REQUEST_ID 2
@@ -2707,11 +2713,24 @@ class OtaUpdateCommand : public WifiCommand
             return result;
         }
 
+        result = request.put_u32(OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR, buf->ota_txcap_len);
+        if (result != WIFI_SUCCESS) {
+            ALOGE("otaDownload Failed to put data= %d", result);
+            return result;
+        }
+
+        result = request.put(OTA_DOWNLOAD_TXCAP_BLOB_ATTR,
+            buf->ota_txcap_buf, sizeof(*buf->ota_txcap_buf));
+        if (result != WIFI_SUCCESS) {
+            ALOGE("otaDownload Failed to put data= %d", result);
+            return result;
+        }
+
         request.attr_end(data);
 
         result = requestResponse(request);
         if (result != WIFI_SUCCESS) {
-            ALOGE("Failed to register set otaDownload; result = %d", result);
+            ALOGE("Failed to register set otaDownload; result = %d\n", result);
         }
 
         return result;
@@ -2801,6 +2820,10 @@ wifi_error check_multiple_nvram_clm(uint32_t type, char* hw_revision, char* hw_s
     else if (type == NVRAM) {
         sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_NVRAM_FILE);
     }
+    else if (type == TXCAP_BLOB) {
+        sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_TXCAP_BLOB_FILE);
+    }
+
     for (unsigned int i = 0; i < MAX_NV_FILE; i++) {
         memset(file_name[i], 0, FILE_NAME_LEN);
     }
@@ -2827,6 +2850,7 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     ota_info_buf_t buf;
     char *buffer_nvram = NULL;
     char *buffer_clm = NULL;
+    char *buffer_txcap_blob = NULL;
     char prop_revision_buf[PROPERTY_VALUE_MAX] = {0,};
     char prop_sku_buf[PROPERTY_VALUE_MAX] = {0,};
     char sku_name[MAX_SKU_NAME_LEN] = {0,};
@@ -2861,6 +2885,14 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     }
     buf.ota_clm_buf[0] = buffer_clm;
 
+    check_multiple_nvram_clm(TXCAP_BLOB, prop_revision_buf, sku_name,
+        &buffer_txcap_blob, &buf.ota_txcap_len);
+    if (buffer_txcap_blob == NULL) {
+        ALOGE("buffer_txcap_blob is null");
+        goto exit;
+    }
+    buf.ota_txcap_buf[0] = buffer_txcap_blob;
+
     check_multiple_nvram_clm(NVRAM, prop_revision_buf, sku_name,
             &buffer_nvram, &buf.ota_nvram_len);
     if (buffer_nvram == NULL) {
@@ -2876,6 +2908,9 @@ exit:
     }
     if (buffer_nvram != NULL) {
         free(buffer_nvram);
+    }
+    if (buffer_txcap_blob != NULL) {
+        free(buffer_txcap_blob);
     }
 
     cmd->releaseRef();
