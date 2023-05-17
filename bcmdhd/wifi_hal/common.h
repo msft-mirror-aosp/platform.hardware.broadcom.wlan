@@ -62,6 +62,7 @@ const uint32_t BRCM_OUI =  0x001018;
 #define SAR_CONFIG_SCENARIO_COUNT      100
 #define MAX_NUM_RADIOS 3
 #define MAX_CMD_RESP_BUF_LEN 8192
+#define MAX_MLO_LINK 3
 
 /*
  This enum defines ranges for various commands; commands themselves
