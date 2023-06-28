@@ -104,6 +104,11 @@ wifi_error wifi_get_cached_scan_results(wifi_interface_handle iface,
     wifi_cached_scan_result_handler handler);
 wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
     u32 channelCategoryEnableFlag);
+wifi_error wifi_nan_suspend_request(transaction_id id,
+    wifi_interface_handle iface, NanSuspendRequest* msg);
+wifi_error wifi_nan_resume_request(transaction_id id,
+    wifi_interface_handle iface, NanResumeRequest* msg);
+
 
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
@@ -362,6 +367,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
     fn->wifi_get_cached_scan_results = wifi_get_cached_scan_results;
     fn->wifi_enable_sta_channel_for_peer_network = wifi_enable_sta_channel_for_peer_network;
+    fn->wifi_nan_suspend_request = wifi_nan_suspend_request;
+    fn->wifi_nan_resume_request = wifi_nan_resume_request;
     return WIFI_SUCCESS;
 }
 #ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
