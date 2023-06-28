@@ -104,6 +104,11 @@ wifi_error wifi_get_cached_scan_results(wifi_interface_handle iface,
     wifi_cached_scan_result_handler handler);
 wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
     u32 channelCategoryEnableFlag);
+wifi_error wifi_nan_suspend_request(transaction_id id,
+    wifi_interface_handle iface, NanSuspendRequest* msg);
+wifi_error wifi_nan_resume_request(transaction_id id,
+    wifi_interface_handle iface, NanResumeRequest* msg);
+
 
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
@@ -362,6 +367,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
     fn->wifi_get_cached_scan_results = wifi_get_cached_scan_results;
     fn->wifi_enable_sta_channel_for_peer_network = wifi_enable_sta_channel_for_peer_network;
+    fn->wifi_nan_suspend_request = wifi_nan_suspend_request;
+    fn->wifi_nan_resume_request = wifi_nan_resume_request;
     return WIFI_SUCCESS;
 }
 #ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
@@ -608,7 +615,6 @@ static int wifi_add_membership(wifi_handle handle, const char *group)
 static void internal_cleaned_up_handler(wifi_handle handle)
 {
     hal_info *info = getHalInfo(handle);
-    wifi_cleaned_up_handler cleaned_up_handler = info->cleaned_up_handler;
 
     ALOGI("internal clean up");
 
@@ -622,12 +628,6 @@ static void internal_cleaned_up_handler(wifi_handle handle)
         info->event_sock = NULL;
     }
 
-    if (cleaned_up_handler) {
-        ALOGI("cleanup_handler cb");
-        (*cleaned_up_handler)(handle);
-    } else {
-        ALOGI("!! clean up handler is null!!");
-    }
     DestroyResponseLock();
     pthread_mutex_destroy(&info->cb_lock);
     free(info);
@@ -641,7 +641,7 @@ void wifi_internal_module_cleanup()
     twt_deinit_handler();
 }
 
-void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
+void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler cleaned_up_handler)
 {
     if (!handle) {
         ALOGE("Handle is null");
@@ -654,8 +654,6 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     int numIfaceHandles = 0;
     wifi_interface_handle *ifaceHandles = NULL;
     wifi_interface_handle wlan0Handle;
-
-    info->cleaned_up_handler = handler;
 
     wlan0Handle = wifi_get_wlan_interface((wifi_handle) info, ifaceHandles, numIfaceHandles);
 
@@ -727,6 +725,14 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     pthread_mutex_unlock(&info->cb_lock);
 
     info->clean_up = true;
+
+    /* global func ptr be invalidated and will not call any command from legacy hal */
+    if (cleaned_up_handler) {
+        ALOGI("cleaned_up_handler to invalidates func ptr");
+        cleaned_up_handler(handle);
+    } else {
+        ALOGI("cleaned up handler is null");
+    }
 
     if (TEMP_FAILURE_RETRY(write(info->cleanup_socks[0], "Exit", 4)) < 1) {
         // As a fallback set the cleanup flag to TRUE
