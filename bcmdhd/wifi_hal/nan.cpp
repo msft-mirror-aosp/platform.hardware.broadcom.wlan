@@ -125,6 +125,11 @@ static const char *NanStatusToString(NanStatusType status)
             C2S(NAN_STATUS_ALREADY_ENABLED)
             C2S(NAN_STATUS_FOLLOWUP_QUEUE_FULL)
             C2S(NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED)
+            C2S(NAN_STATUS_INVALID_PAIRING_ID)
+            C2S(NAN_STATUS_INVALID_BOOTSTRAPPING_ID)
+            C2S(NAN_STATUS_REDUNDANT_REQUEST)
+            C2S(NAN_STATUS_NOT_SUPPORTED)
+            C2S(NAN_STATUS_NO_CONNECTION)
 
         default:
             return "NAN_STATUS_INTERNAL_FAILURE";
@@ -292,6 +297,7 @@ typedef enum {
     NAN_ATTRIBUTE_INSTANT_MODE_ENABLE               = 230,
     NAN_ATTRIBUTE_INSTANT_COMM_CHAN                 = 231,
     NAN_ATTRIBUTE_CHRE_REQUEST                      = 232,
+    NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE                = 233
 } NAN_ATTRIBUTE;
 
 typedef enum {
@@ -315,6 +321,9 @@ typedef enum {
     NAN_DATA_PATH_IFACE_UP                      = 17,
     NAN_DATA_PATH_SEC_INFO                      = 18,
     NAN_VERSION_INFO                            = 19,
+    NAN_REQUEST_ENABLE_MERGE                    = 20,
+    NAN_REQUEST_SUSPEND                         = 21,
+    NAN_REQUEST_RESUME                          = 22,
     NAN_REQUEST_LAST                            = 0xFFFF
 } NanRequestType;
 
@@ -472,6 +481,11 @@ static NanStatusType nan_map_response_status (int vendor_status) {
         case NAN_STATUS_ALREADY_ENABLED:
         case NAN_STATUS_FOLLOWUP_QUEUE_FULL:
         case NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED:
+        case NAN_STATUS_INVALID_PAIRING_ID:
+        case NAN_STATUS_INVALID_BOOTSTRAPPING_ID:
+        case NAN_STATUS_REDUNDANT_REQUEST:
+        case NAN_STATUS_NOT_SUPPORTED:
+        case NAN_STATUS_NO_CONNECTION:
             hal_status = (NanStatusType)vendor_status;
             break;
         default:
@@ -946,6 +960,14 @@ class NanDiscEnginePrimitive : public WifiCommand
             return result;
         }
 
+        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n", __func__, result);
+            return result;
+        }
+	/* To be removed */
+        ALOGE("Publish enable_suspendability=%u\n", mParams->enable_suspendability);
+
         request.attr_end(data);
 
         ALOGI("Returning successfully\n");
@@ -1319,6 +1341,14 @@ class NanDiscEnginePrimitive : public WifiCommand
             }
         }
 
+        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n", __func__, result);
+            return result;
+        }
+	/* To be removed */
+        ALOGE("Subscribe enable_suspendability=%u\n", mParams->enable_suspendability);
+
         request.attr_end(data);
         NAN_DBG_EXIT();
         return WIFI_SUCCESS;
@@ -1565,6 +1595,8 @@ class NanDiscEnginePrimitive : public WifiCommand
             desc->cipher_suites_supported = src->cipher_suites_supported;
             desc->is_instant_mode_supported = src->is_instant_mode_supported;
             desc->ndpe_attr_supported = src->ndpe_attr_supported;
+            desc->is_suspension_supported = src->is_suspension_supported;
+            ALOGE(" suspend capability %d \n", rsp_vndr_data->capabilities.is_suspension_supported); //Remove
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
@@ -2141,6 +2173,15 @@ class NanDataPathPrimitive : public WifiCommand
             }
         }
 
+        if (mParams->publish_subscribe_id) {
+            result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sub id = %d, result = %d\n",
+                    __func__, mParams->publish_subscribe_id, result);
+                return result;
+            }
+        }
+
         request.attr_end(data);
         return WIFI_SUCCESS;
     }
@@ -2303,6 +2344,15 @@ class NanDataPathPrimitive : public WifiCommand
                     (void *)mParams->scid, mParams->scid_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill scid, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->publish_subscribe_id) {
+            result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sub id = %d, result = %d\n",
+                    __func__, mParams->publish_subscribe_id, result);
                 return result;
             }
         }
@@ -2724,6 +2774,10 @@ class NanMacControl : public WifiCommand
             /* TODO: Not yet implemented */
         } else if (mType == NAN_VERSION_INFO) {
             return createVersionRequest(request);
+        } else if (mType == NAN_REQUEST_SUSPEND) {
+            return createSuspendRequest(request, (NanSuspendRequest *)mParams);
+        } else if (mType == NAN_REQUEST_RESUME) {
+            return createResumeRequest(request, (NanResumeRequest *)mParams);
         } else {
             ALOGE("Unknown Nan request\n");
         }
@@ -3409,6 +3463,42 @@ class NanMacControl : public WifiCommand
         return WIFI_SUCCESS;
     }
 
+    int createSuspendRequest(WifiRequest& request,
+            NanSuspendRequest *mParams) {
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_SUSPEND);
+        if (result < 0) {
+            ALOGE("%s: Fail to create Suspension Start request\n", __func__);
+            return result;
+        }
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+        if (result < 0) {
+            ALOGE("%s: Failing in Suspension Start request, result = %d\n", __func__, result);
+            return result;
+        }
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int createResumeRequest(WifiRequest& request,
+            NanResumeRequest *mParams) {
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_RESUME);
+        if (result < 0) {
+            ALOGE("%s: Fail to create Resume request\n", __func__);
+            return result;
+        }
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+        if (result < 0) {
+            ALOGE("%s: Failing in Resume request, result = %d\n", __func__, result);
+            return result;
+        }
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
     int start()
     {
         NAN_DBG_ENTER();
@@ -3433,24 +3523,7 @@ class NanMacControl : public WifiCommand
 
     int cancel()
     {
-        NAN_DBG_ENTER();
-
-        WifiRequest request(familyId(), ifaceId());
-        int result = createRequest(request);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("%s: Failed to create setup request; result = %d", __func__, result);
-            return result;
-        }
-
-        result = requestResponse(request);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("%s: Failed to configure setup; result = %d", __func__, result);
-            return result;
-        }
-
-        request.destroy();
-        NAN_DBG_EXIT();
-        return WIFI_SUCCESS;
+        return start();
     }
 
     int handleResponse(WifiEvent& reply) {
@@ -3494,6 +3567,20 @@ class NanMacControl : public WifiCommand
 
             if( rsp_data.status != NAN_STATUS_SUCCESS) {
                 GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(mId, &rsp_data);
+            }
+        }
+        if ((rsp_vndr_data->subcmd == NAN_SUBCMD_SUSPEND) ||
+                (rsp_vndr_data->subcmd == NAN_SUBCMD_RESUME)) {
+            NanResponseMsg rsp_data;
+            memset(&rsp_data, 0, sizeof(NanResponseMsg));
+            rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
+            rsp_data.status = (NanStatusType)rsp_vndr_data->status;
+
+            ALOGI("NanMacControl:Received response for cmd [%s], TxID %d ret %d\n",
+                    NanRspToString(rsp_data.response_type), id(), rsp_data.status);
+
+            if (rsp_data.status != NAN_STATUS_SUCCESS) {
+                GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
             }
         }
         return NL_SKIP;
@@ -3719,6 +3806,21 @@ class NanMacControl : public WifiCommand
                 ALOGI("Received NAN_EVENT_TCA\n");
                 break;
 
+            case NAN_EVENT_SUSPENSION_STATUS:
+                ALOGI("Received NAN_EVENT_SUSPENSION_STATUS\n");
+                NanSuspensionModeChangeInd suspend_ind;
+                memset(&suspend_ind, 0, sizeof(NanSuspensionModeChangeInd));
+                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                    attr_type = it.get_type();
+                    if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                        suspend_ind.is_suspended = (bool)it.get_u8();
+                        ALOGI("Nan Suspension :status %u", suspend_ind.is_suspended);
+                    }
+                }
+
+                GET_NAN_HANDLE(info)->mHandlers.EventSuspensionModeChange(&suspend_ind);
+                break;
+
             case NAN_EVENT_UNKNOWN:
                 ALOGI("Received NAN_EVENT_UNKNOWN\n");
                 break;
@@ -3734,6 +3836,7 @@ class NanMacControl : public WifiCommand
         }
         unregisterVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
         unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
+        unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
     }
     void registerNanVendorEvents()
     {
@@ -3743,6 +3846,7 @@ class NanMacControl : public WifiCommand
         }
         registerVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
         registerVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
+        registerVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
     }
 };
 
@@ -3806,6 +3910,8 @@ static const char *NanRspToString(int cmd_resp)
             C2S(NAN_DP_RESPONDER_RESPONSE)
             C2S(NAN_DP_END)
             C2S(NAN_GET_CAPABILITIES)
+            C2S(NAN_SUSPEND_REQUEST_RESPONSE)
+            C2S(NAN_RESUME_REQUEST_RESPONSE)
 
         default:
             return "UNKNOWN_NAN_CMD_RESPONSE";
@@ -3835,6 +3941,8 @@ static const char *NanCmdToString(int cmd)
             C2S(NAN_DATA_PATH_IFACE_UP)
             C2S(NAN_DATA_PATH_SEC_INFO)
             C2S(NAN_VERSION_INFO)
+            C2S(NAN_REQUEST_SUSPEND)
+            C2S(NAN_REQUEST_RESUME)
         default:
             return "UNKNOWN_NAN_CMD";
     }
@@ -3920,6 +4028,7 @@ static const char *NanAttrToString(u16 cmd)
             C2S(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO)
             C2S(NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL)
             C2S(NAN_ATTRIBUTE_ENABLE_MERGE)
+            C2S(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE)
 
         default:
             return "NAN_ATTRIBUTE_UNKNOWN";
@@ -3978,6 +4087,12 @@ NanResponseType get_response_type(WIFI_SUB_COMMAND nan_subcmd)
             break;
         case NAN_SUBCMD_GET_CAPABILITIES:
             response_type = NAN_GET_CAPABILITIES;
+            break;
+        case NAN_SUBCMD_SUSPEND:
+            response_type = NAN_SUSPEND_REQUEST_RESPONSE;
+            break;
+        case NAN_SUBCMD_RESUME:
+            response_type = NAN_RESUME_REQUEST_RESPONSE;
             break;
         default:
             /* unknown response for a command */
@@ -4277,6 +4392,7 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     if (msg->sdea_service_specific_info_len) {
         ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
     }
+    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
 
     return WIFI_SUCCESS;
 }
@@ -4342,6 +4458,7 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
     if (msg->sdea_service_specific_info_len)
         ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
+    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
 
     return WIFI_SUCCESS;
 }
@@ -4528,7 +4645,7 @@ wifi_error nan_cmn_disable_request(transaction_id id, NanMacControl *mac)
     mac->setType(NAN_REQUEST_DISABLE);
     ret = (wifi_error)mac->cancel();
     if (ret != WIFI_SUCCESS) {
-        ALOGE("cancel failed, error = %d\n", ret);
+        ALOGE("Disable req: cmd cancel failed, error = %d\n", ret);
     } else {
         ALOGE("Deinitializing Nan Mac Control = %p\n", mac);
     }
@@ -4879,6 +4996,48 @@ wifi_error nan_register_handler(wifi_interface_handle iface,
     return WIFI_SUCCESS;
 }
 
+/*  Function to send NAN device Suspension start request to the wifi driver.*/
+wifi_error wifi_nan_suspend_request(transaction_id id,
+        wifi_interface_handle iface, NanSuspendRequest* msg)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    NanRequestType cmdType = NAN_REQUEST_SUSPEND;
+
+    NanMacControl *cmd = new NanMacControl(iface, id, (void *)msg, cmdType);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    cmd->setType(cmdType);
+    cmd->setId(id);
+    cmd->setMsg((void *)msg);
+    ALOGE("%s :Suspend request svc_id = %d\n", __func__, msg->publish_subscribe_id);
+    ret = (wifi_error)cmd->start();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s :Suspend request failed, error = %d\n", __func__, ret);
+    }
+    cmd->releaseRef();
+    return ret;
+}
+
+/*  Function to send NAN device Resume request to the wifi driver.*/
+wifi_error wifi_nan_resume_request(transaction_id id,
+        wifi_interface_handle iface, NanResumeRequest* msg)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    NanRequestType cmdType = NAN_REQUEST_RESUME;
+
+    NanMacControl *cmd = new NanMacControl(iface, id, (void *)msg, cmdType);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    cmd->setType(cmdType);
+    cmd->setId(id);
+    cmd->setMsg((void *)msg);
+    ALOGE("%s :Resume request svc_id = %d\n", __func__, msg->publish_subscribe_id);
+    ret = (wifi_error)cmd->start();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s :Resume request failed, error = %d\n", __func__, ret);
+    }
+    cmd->releaseRef();
+    return ret;
+}
+
 wifi_error nan_get_version(wifi_handle handle, NanVersion* version)
 {
     wifi_error ret = WIFI_SUCCESS;
@@ -4918,6 +5077,7 @@ class NanEventCap : public WifiCommand
             }
             unregisterVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
             unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
+            unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
         }
         void registerNanVendorEvents()
         {
@@ -4927,6 +5087,7 @@ class NanEventCap : public WifiCommand
             }
             registerVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
             registerVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
+            registerVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
         }
 
         int handleEvent(WifiEvent& event) {
@@ -5426,6 +5587,22 @@ class NanEventCap : public WifiCommand
                     GET_NAN_HANDLE(info)->mHandlers.EventTransmitFollowup(&followup_ind);
                     break;
                 }
+                case NAN_EVENT_SUSPENSION_STATUS: {
+                    ALOGI("Received NAN_EVENT_SUSPENSION_STATUS\n");
+                    NanSuspensionModeChangeInd suspend_ind;
+                    memset(&suspend_ind, 0, sizeof(NanSuspensionModeChangeInd));
+                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                        attr_type = it.get_type();
+                        if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                            suspend_ind.is_suspended = (bool)it.get_u8();
+                            ALOGI("Nan Suspension Event :status %u", suspend_ind.is_suspended);
+                        }
+                    }
+
+                    GET_NAN_HANDLE(info)->mHandlers.EventSuspensionModeChange(&suspend_ind);
+                    break;
+                }
+
                 case NAN_EVENT_UNKNOWN:
                     ALOGI("Received NAN_EVENT_UNKNOWN\n");
                     break;

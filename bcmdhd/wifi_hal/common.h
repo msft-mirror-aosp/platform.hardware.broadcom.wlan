@@ -218,6 +218,8 @@ typedef enum {
     NAN_SUBCMD_DATA_PATH_SEC_INFO,                      /* 0x1710 */
     NAN_SUBCMD_VERSION_INFO,                            /* 0x1711 */
     NAN_SUBCMD_ENABLE_MERGE,                            /* 0x1712 */
+    NAN_SUBCMD_SUSPEND,                                 /* 0x1713 */
+    NAN_SUBCMD_RESUME,                                  /* 0x1714 */
     APF_SUBCMD_GET_CAPABILITIES = ANDROID_NL80211_SUBCMD_PKT_FILTER_RANGE_START,
     APF_SUBCMD_SET_FILTER,
     APF_SUBCMD_READ_FILTER,
@@ -289,7 +291,8 @@ typedef enum {
     NAN_ASYNC_RESPONSE_DISABLED			= 40,
     BRCM_VENDOR_EVENT_TWT			= 43,
     BRCM_TPUT_DUMP_EVENT			= 44,
-    NAN_EVENT_MATCH_EXPIRY			= 45
+    NAN_EVENT_MATCH_EXPIRY			= 45,
+    NAN_EVENT_SUSPENSION_STATUS                 = 49
 } WIFI_EVENT;
 
 typedef void (*wifi_internal_event_handler) (wifi_handle handle, int events);
