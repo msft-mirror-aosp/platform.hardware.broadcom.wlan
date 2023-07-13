@@ -1270,8 +1270,10 @@ class AndroidPktFilterCommand : public WifiCommand {
     int createSetPktFilterRequest(WifiRequest& request) {
         u8 *program = new u8[mProgramLen];
         NULL_CHECK_RETURN(program, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+        ALOGE("Success to allocate program of len: %d\n", mProgramLen);
         int result = request.create(GOOGLE_OUI, APF_SUBCMD_SET_FILTER);
         if (result < 0) {
+            ALOGE("Failed to create cmd: %d, err %d\n", APF_SUBCMD_SET_FILTER, result);
             delete[] program;
             return result;
         }
@@ -1279,11 +1281,13 @@ class AndroidPktFilterCommand : public WifiCommand {
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(APF_ATTRIBUTE_PROGRAM_LEN, mProgramLen);
         if (result < 0) {
+            ALOGE("Failed to put the program_len %d, err %d\n", mProgramLen, result);
             goto exit;
         }
         memcpy(program, mProgram, mProgramLen);
         result = request.put(APF_ATTRIBUTE_PROGRAM, program, mProgramLen);
         if (result < 0) {
+            ALOGE("Failed to copy program_ptr %d, err %d\n", mProgramLen, result);
             goto exit;
         }
 exit:   request.attr_end(data);
@@ -1316,6 +1320,7 @@ exit:   request.attr_end(data);
         WifiRequest request(familyId(), ifaceId());
         int result = createRequest(request);
         if (result < 0) {
+            ALOGI("CreateRequest failed for APF, result = %d", result);
             return result;
         }
         result = requestResponse(request);
@@ -1332,7 +1337,7 @@ exit:   request.attr_end(data);
     }
 
     int handleResponse(WifiEvent& reply) {
-        ALOGD("In SetAPFCommand::handleResponse");
+        ALOGE("In SetAPFCommand::handleResponse mReqType %d\n", mReqType);
 
         if (reply.get_cmd() != NL80211_CMD_VENDOR) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
@@ -1345,13 +1350,13 @@ exit:   request.attr_end(data);
         nlattr *vendor_data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
+        ALOGI("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (vendor_data == NULL || len == 0) {
             ALOGE("no vendor data in SetAPFCommand response; ignoring it");
             return NL_SKIP;
         }
-        if( mReqType == SET_APF_PROGRAM) {
-            ALOGD("Response received for set packet filter command\n");
+        if (mReqType == SET_APF_PROGRAM) {
+            ALOGE("Response received for set packet filter command\n");
         } else if (mReqType == GET_APF_CAPABILITIES) {
             *mVersion = 0;
             *mMaxLen = 0;
@@ -1982,7 +1987,15 @@ static wifi_error wifi_get_packet_filter_capabilities(wifi_interface_handle hand
 static wifi_error wifi_set_packet_filter(wifi_interface_handle handle,
         const u8 *program, u32 len)
 {
-    ALOGD("Setting APF program, halHandle = %p\n", handle);
+    char iface_name[IFNAMSIZ];
+
+    ALOGE("Setting APF program, halHandle = %p\n", handle);
+    if (wifi_get_iface_name(handle, iface_name, sizeof(iface_name)) != WIFI_SUCCESS) {
+       ALOGE("%s : Invalid interface handle\n", __func__);
+       return WIFI_ERROR_INVALID_ARGS;
+    }
+    ALOGE("Set apf filter for iface = %s\n", iface_name);
+
     AndroidPktFilterCommand *cmd = new AndroidPktFilterCommand(handle, program, len);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     wifi_error result = (wifi_error)cmd->start();
