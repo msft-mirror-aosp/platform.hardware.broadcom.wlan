@@ -653,8 +653,10 @@ int WifiCommand::requestResponse(WifiRequest& request) {
     int err = 0;
 
     struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
-    if (!cb)
+    if (!cb) {
+        ALOGE("nl80211: cb alloc failed");
         goto out;
+    }
 
     err = nl_send_auto_complete(mInfo->cmd_sock, request.getMessage());    /* send message */
     if (err < 0)
