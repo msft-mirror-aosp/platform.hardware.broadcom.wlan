@@ -628,6 +628,13 @@ static void internal_cleaned_up_handler(wifi_handle handle)
         info->event_sock = NULL;
     }
 
+    if (info->interfaces) {
+        for (int i = 0; i < info->num_interfaces; i++) {
+            free(info->interfaces[i]);
+        }
+        free(info->interfaces);
+    }
+
     DestroyResponseLock();
     pthread_mutex_destroy(&info->cb_lock);
     free(info);
@@ -1723,6 +1730,11 @@ wifi_error wifi_init_interfaces(wifi_handle handle)
         if (is_wifi_interface(de->d_name)) {
             interface_info *ifinfo = (interface_info *)malloc(sizeof(interface_info));
             if (!ifinfo) {
+                if (info->interfaces) {
+                    for (int j = 0; j < i; j++) {
+                        free(info->interfaces[j]);
+                    }
+                }
                 free(info->interfaces);
                 info->num_interfaces = 0;
                 closedir(d);
@@ -1730,6 +1742,7 @@ wifi_error wifi_init_interfaces(wifi_handle handle)
             }
             memset(ifinfo, 0, sizeof(interface_info));
             if (get_interface(de->d_name, ifinfo) != WIFI_SUCCESS) {
+                free(ifinfo);
                 continue;
             }
             /* Mark as static iface */
@@ -2671,26 +2684,34 @@ wifi_error wifi_virtual_interface_delete(wifi_handle handle, const char* ifname)
         return WIFI_ERROR_UNKNOWN;
     }
 
+    /* Check if interface delete requested on valid interface */
     while (i < info->max_num_interfaces) {
         if (info->interfaces[i] != NULL &&
             strncmp(info->interfaces[i]->name,
             ifname, sizeof(info->interfaces[i]->name)) == 0) {
-            if (info->interfaces[i]->is_virtual == false) {
-                ALOGI("%s: %s is static iface, skip delete\n",
-                    __FUNCTION__, ifname);
-                    return WIFI_SUCCESS;
+            if (!get_halutil_mode()) {
+                if (info->interfaces[i]->is_virtual == false) {
+                    ALOGI("%s: %s is static iface, skip delete\n",
+                        __FUNCTION__, ifname);
+                        return WIFI_SUCCESS;
+                }
+            } else {
+                ALOGI("%s: %s delete iface", __FUNCTION__, ifname);
+                break;
+            }
         }
-    }
         i++;
     }
 
-    ALOGD("%s: iface name=%s\n", __FUNCTION__, ifname);
+    ALOGI("%s: iface name=%s\n", __FUNCTION__, ifname);
     wlan0Handle = wifi_get_wlan_interface((wifi_handle)handle, ifaceHandles, numIfaceHandles);
     VirtualIfaceConfig command(wlan0Handle, ifname, (nl80211_iftype)0, 0);
     ret = (wifi_error)command.deleteIface();
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: Iface delete Error:%d", __FUNCTION__,ret);
-        return ret;
+        /* If lower layer returns an error, hang event is expected to do wifi reset
+         * and hal state needs to be cleared irrespectivily. Hence fall-through.
+         */
     }
     /* Update dynamic interface list */
     added_ifaces.erase(std::remove(added_ifaces.begin(), added_ifaces.end(), std::string(ifname)),
