@@ -524,32 +524,39 @@ typedef struct {
 } sku_info_t;
 
 sku_info_t sku_table[] = {
+    // BCM4389
     { {"G9S9B"}, {"MMW"} },
     { {"G8V0U"}, {"MMW"} },
     { {"GFQM1"}, {"MMW"} },
     { {"GB62Z"}, {"MMW"} },
     { {"GE2AE"}, {"MMW"} },
     { {"GQML3"}, {"MMW"} },
-    { {"GKWS6"}, {"MMW"} },
-    { {"G1MNW"}, {"MMW"} },
     { {"GB7N6"}, {"ROW"} },
     { {"GLU0G"}, {"ROW"} },
     { {"GNA8F"}, {"ROW"} },
     { {"GX7AS"}, {"ROW"} },
     { {"GP4BC"}, {"ROW"} },
     { {"GVU6C"}, {"ROW"} },
-    { {"GPJ41"}, {"ROW"} },
-    { {"GC3VE"}, {"ROW"} },
     { {"GR1YH"}, {"JPN"} },
     { {"GF5KQ"}, {"JPN"} },
     { {"GPQ72"}, {"JPN"} },
     { {"GB17L"}, {"JPN"} },
     { {"GFE4J"}, {"JPN"} },
     { {"G03Z5"}, {"JPN"} },
+    // BCM4398
+    { {"GKWS6"}, {"MMW"} },
+    { {"G1MNW"}, {"MMW"} },
+    { {"GPJ41"}, {"ROW"} },
+    { {"GC3VE"}, {"ROW"} },
     { {"GE9DP"}, {"JPN"} },
     { {"GZPF0"}, {"JPN"} },
     { {"G1AZG"}, {"EU"} },
-    { {"G9BQD"}, {"NA"} }
+    { {"G9BQD"}, {"NA"} },
+    // BCM4383
+    { {"G8HHN"}, {"MMW"} },
+    { {"G6GPR"}, {"ROW"} },
+    { {"G576D"}, {"JPN"} },
+    { {"GKV4X"}, {"NA"} }
 };
 ///////////////////////////////////////////////////////////////////////////////
 class DebugCommand : public WifiCommand
