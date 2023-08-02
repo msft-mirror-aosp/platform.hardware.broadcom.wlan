@@ -716,8 +716,6 @@ class NanDiscEnginePrimitive : public WifiCommand
 
         if (mParams->service_name_len) {
             u8 svc_hash[NAN_SVC_HASH_SIZE];
-            u16 len = min(mParams->service_name_len, sizeof(mParams->service_name) - 1);
-            mParams->service_name[len] = '\0';
 
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
                     svc_hash, NAN_SVC_HASH_SIZE);
@@ -1090,9 +1088,6 @@ class NanDiscEnginePrimitive : public WifiCommand
 
         if (mParams->service_name_len) {
             u8 svc_hash[NAN_SVC_HASH_SIZE];
-            u16 len = min(mParams->service_name_len, sizeof(mParams->service_name) - 1);
-            mParams->service_name[len] = '\0';
-
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
                     svc_hash, NAN_SVC_HASH_SIZE);
             if (result < 0) {
@@ -1434,8 +1429,6 @@ class NanDiscEnginePrimitive : public WifiCommand
                 ALOGE("%s: Failed to put svc info, result = %d", __func__, result);
                 return result;
             }
-            mParams->service_specific_info[mParams->service_specific_info_len] = '\0';
-            ALOGI("Transmit service info string is %s\n", mParams->service_specific_info);
         }
 
         if (ISGREATER(mParams->recv_indication_cfg, NAN_PUB_RECV_FLAG_MAX)) {
@@ -1629,7 +1622,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         pub_term_event.reason = (NanStatusType)it.get_u8();
                         ALOGI("pub termination status %u", pub_term_event.reason);
                     } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                        u8 len = min(it.get_len(), sizeof(pub_term_event.nan_reason) - 1);
+                        u8 len = min(it.get_len(), (sizeof(pub_term_event.nan_reason) - 1));
                         memcpy(pub_term_event.nan_reason, it.get_data(), len);
                         pub_term_event.nan_reason[len] = '\0';
                         ALOGI("pub termination reason: %s, len = %d\n",
@@ -1667,19 +1660,16 @@ class NanDiscEnginePrimitive : public WifiCommand
                         subscribe_event.service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(subscribe_event.service_specific_info_len,
-                                      sizeof(subscribe_event.service_specific_info) - 1);
+                                      sizeof(subscribe_event.service_specific_info));
                         memcpy(subscribe_event.service_specific_info, it.get_data(), len);
-                        subscribe_event.service_specific_info[len] = '\0';
-                        ALOGI("service info: %s", subscribe_event.service_specific_info);
                     } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN) {
-                        ALOGI("sdf match filter length: %d", subscribe_event.sdf_match_filter_len);
                         subscribe_event.sdf_match_filter_len = it.get_u16();
+                        ALOGI("sdf match filter length: %d\n",
+                            subscribe_event.sdf_match_filter_len);
                     } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER) {
                         u16 len = min(subscribe_event.sdf_match_filter_len,
-                                      sizeof(subscribe_event.sdf_match_filter) - 1);
+                                      sizeof(subscribe_event.sdf_match_filter));
                         memcpy(subscribe_event.sdf_match_filter, it.get_data(), len);
-                        subscribe_event.sdf_match_filter[len] = '\0';
-                        ALOGI("sdf match filter: %s", subscribe_event.sdf_match_filter);
                     } else if (attr_type == NAN_ATTRIBUTE_CIPHER_SUITE_TYPE) {
                         ALOGI("Peer Cipher suite type: %u", it.get_u8());
                         subscribe_event.peer_cipher_type = it.get_u8();
@@ -1688,9 +1678,8 @@ class NanDiscEnginePrimitive : public WifiCommand
                         subscribe_event.scid_len= it.get_u32();
                     } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                         u16 len = min(subscribe_event.scid_len,
-                                      sizeof(subscribe_event.scid) - 1);
+                                      sizeof(subscribe_event.scid));
                         memcpy(subscribe_event.scid, it.get_data(), len);
-                        subscribe_event.scid[len] = '\0';
                     } else if (attr_type == NAN_ATTRIBUTE_RANGING_INDICATION) {
                         subscribe_event.range_info.ranging_event_type = it.get_u32();
                         ALOGI("ranging indication %d", it.get_u32());
@@ -1705,10 +1694,8 @@ class NanDiscEnginePrimitive : public WifiCommand
                         subscribe_event.sdea_service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(subscribe_event.sdea_service_specific_info_len,
-                                      sizeof(subscribe_event.sdea_service_specific_info) - 1);
+                                      sizeof(subscribe_event.sdea_service_specific_info));
                         memcpy(subscribe_event.sdea_service_specific_info, it.get_data(), len);
-                        subscribe_event.sdea_service_specific_info[len] = '\0';
-                        ALOGI("sdea service info: %s", subscribe_event.sdea_service_specific_info);
                     } else if (attr_type == NAN_ATTRIBUTE_MATCH_OCCURRED_FLAG) {
                         ALOGI("match occurred flag: %u", it.get_u8());
                         subscribe_event.match_occured_flag = it.get_u8();
@@ -1752,7 +1739,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         sub_term_event.reason = (NanStatusType)it.get_u16();
                         ALOGI("sub termination status %u", sub_term_event.reason);
                     } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                        u8 len = min(it.get_len(), sizeof(sub_term_event.nan_reason) - 1);
+                        u8 len = min(it.get_len(), (sizeof(sub_term_event.nan_reason) - 1));
                         memcpy(sub_term_event.nan_reason, it.get_data(), len);
                         sub_term_event.nan_reason[len] = '\0';
                         ALOGI("sub termination nan reason: %s, len = %d\n",
@@ -1784,14 +1771,12 @@ class NanDiscEnginePrimitive : public WifiCommand
                         followup_event.service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(followup_event.service_specific_info_len,
-                                      sizeof(followup_event.service_specific_info) - 1);
+                                      sizeof(followup_event.service_specific_info));
                         memcpy(followup_event.service_specific_info, it.get_data(), len);
-                        followup_event.service_specific_info[len] = '\0';
                     } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(followup_event.sdea_service_specific_info_len,
-                                      sizeof(followup_event.sdea_service_specific_info) - 1);
+                                      sizeof(followup_event.sdea_service_specific_info));
                         memcpy(followup_event.sdea_service_specific_info, it.get_data(), len);
-                        followup_event.sdea_service_specific_info[len] = '\0';
                     }
                 }
                 counters.transmit_recv++;
@@ -1809,7 +1794,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                     } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
                         followup_ind.reason = (NanStatusType)it.get_u8();
                     } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                        u8 len = min(it.get_len(), sizeof(followup_ind.nan_reason) - 1);
+                        u8 len = min(it.get_len(), (sizeof(followup_ind.nan_reason) - 1));
                         memcpy(followup_ind.nan_reason, it.get_data(), len);
                         followup_ind.nan_reason[len] = '\0';
                         ALOGI("nan transmit followup ind: reason: %s, len = %d\n",
@@ -2560,10 +2545,8 @@ class NanDataPathPrimitive : public WifiCommand
 
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(ndp_ind_app_info_len,
-                                      sizeof(ndp_request_event.app_info.ndp_app_info) - 1);
+                                      sizeof(ndp_request_event.app_info.ndp_app_info));
                         memcpy(ndp_request_event.app_info.ndp_app_info, it.get_data(), len);
-                        ndp_request_event.app_info.ndp_app_info[len] = '\0';
-                        ALOGI("service info: %s\n", ndp_request_event.app_info.ndp_app_info);
 
                     } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
                         ALOGI("scid len: %u\n", it.get_u32());
@@ -2571,11 +2554,8 @@ class NanDataPathPrimitive : public WifiCommand
 
                     } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                         u16 len = min(ndp_request_event.scid_len,
-                                      sizeof(ndp_request_event.scid) - 1);
+                                      sizeof(ndp_request_event.scid));
                         memcpy(ndp_request_event.scid, it.get_data(), len);
-                        ndp_request_event.scid[len] = '\0';
-                        ALOGI("scid : %s\n", ndp_request_event.scid);
-
                     }
                 }
 
@@ -2610,13 +2590,9 @@ class NanDataPathPrimitive : public WifiCommand
                             ndp_create_confirmation_event.app_info.ndp_app_info_len;
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(ndp_conf_app_info_len,
-                                 sizeof(ndp_create_confirmation_event.app_info.ndp_app_info) - 1);
+                                 sizeof(ndp_create_confirmation_event.app_info.ndp_app_info));
                         memcpy(ndp_create_confirmation_event.app_info.ndp_app_info,
                                 it.get_data(), len);
-                        ndp_create_confirmation_event.app_info.ndp_app_info[len]
-                            = '\0';
-                        ALOGI("service info: %s",
-                                ndp_create_confirmation_event.app_info.ndp_app_info);
 
                     } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
                         ALOGI("response code: %u", (NanDataPathResponseCode)it.get_u8());
@@ -3761,7 +3737,7 @@ class NanMacControl : public WifiCommand
                         disabled_ind.reason = (NanStatusType)it.get_u8();
                         ALOGI("Nan Disable:status %u", disabled_ind.reason);
                     } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                        u8 len = min(it.get_len(), sizeof(disabled_ind.nan_reason) - 1);
+                        u8 len = min(it.get_len(), (sizeof(disabled_ind.nan_reason) - 1));
                         memcpy(disabled_ind.nan_reason, it.get_data(), len);
                         disabled_ind.nan_reason[len] = '\0';
                         ALOGI("Disabled nan reason: %s, len = %d\n",
@@ -3792,11 +3768,10 @@ class NanMacControl : public WifiCommand
 
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         ALOGI("Received NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO\n");
-                        u16 len = min(sdfInd.data.frame_len, sizeof(sdfInd.data.frame_data) - 1);
+                        u16 len = min(sdfInd.data.frame_len, sizeof(sdfInd.data.frame_data));
                         memcpy(&sdfInd.data.frame_data, it.get_data(), len);
                         prhex("sdfInd.data.frame_data: ", (u8*)sdfInd.data.frame_data,
                                 sdfInd.data.frame_len);
-                        sdfInd.data.frame_data[len] = '\0';
                     }
                 }
                 GET_NAN_HANDLE(info)->mHandlers.EventBeaconSdfPayload(&sdfInd);
@@ -4356,7 +4331,8 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     }
     ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
     if (msg->service_specific_info_len) {
-        ALOGI("service_specific_info=%s\n", msg->service_specific_info);
+        prhex("service_specific_info",
+            msg->service_specific_info, msg->service_specific_info_len);
     }
     ALOGI("rx_match_filter_len=%u\n", msg->rx_match_filter_len);
     if (msg->rx_match_filter_len) {
@@ -4371,12 +4347,7 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("recv_indication_cfg=%u\n", msg->recv_indication_cfg);
     ALOGI("cipher_type=%u\n", msg->cipher_type);
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
-    ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
-    ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len) {
-        ALOGI("scid=%s\n", msg->scid);
-    }
     ALOGI("NanSdeaCtrlParams NdpType=%u\n", msg->sdea_params.ndp_type);
     ALOGI("NanSdeaCtrlParams security_cfg=%u\n", msg->sdea_params.security_cfg);
     ALOGI("NanSdeaCtrlParams ranging_state=%u\n", msg->sdea_params.ranging_state);
@@ -4389,10 +4360,6 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("range_response_cfg=%u\n", msg->range_response_cfg.ranging_response);
 
     ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-    if (msg->sdea_service_specific_info_len) {
-        ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
-    }
-    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
 
     return WIFI_SUCCESS;
 }
@@ -4419,8 +4386,6 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     if (msg->service_name_len)
         ALOGI("service_name=%s\n", msg->service_name);
     ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
-    if (msg->service_specific_info_len)
-        ALOGI("service_specific_info=%s\n", msg->service_specific_info);
     ALOGI("rx_match_filter_len=%u\n", msg->rx_match_filter_len);
     if (msg->rx_match_filter_len)
         prhex("rx_match_filter", msg->rx_match_filter, msg->rx_match_filter_len);
@@ -4438,12 +4403,7 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("recv_indication_cfg=%u\n", msg->recv_indication_cfg);
     ALOGI("cipher_type=%u\n", msg->cipher_type);
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
-    ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
-    ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len) {
-        ALOGI("scid=%s\n", msg->scid);
-    }
     ALOGI("NanSdeaCtrlParams NdpType=%u\n", msg->sdea_params.ndp_type);
     ALOGI("NanSdeaCtrlParams security_cfg=%u\n", msg->sdea_params.security_cfg);
     ALOGI("NanSdeaCtrlParams ranging_state=%u\n", msg->sdea_params.ranging_state);
@@ -4456,9 +4416,6 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("range_response = %u\n", msg->range_response_cfg.ranging_response);
 
     ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-    if (msg->sdea_service_specific_info_len)
-        ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
-    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
 
     return WIFI_SUCCESS;
 }
@@ -4476,12 +4433,8 @@ static int dump_NanTransmitFollowupRequest(NanTransmitFollowupRequest* msg)
     ALOGI("priority=%u\n", msg->priority);
     ALOGI("dw_or_faw=%u\n", msg->dw_or_faw);
     ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
-    if (msg->service_specific_info_len)
-        ALOGI("service_specific_info=%s\n", msg->service_specific_info);
     ALOGI("recv_indication_cfg=%u\n", msg->recv_indication_cfg);
     ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-    if (msg->sdea_service_specific_info_len)
-        ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
 
     return WIFI_SUCCESS;
 }
@@ -4509,12 +4462,7 @@ static int dump_NanDataPathInitiatorRequest(NanDataPathInitiatorRequest* msg)
     }
     ALOGI("cipher_type=%u\n", msg->cipher_type);
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
-    ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
-    ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len) {
-        ALOGI("scid=%s\n", msg->scid);
-    }
     if (msg->service_name_len) {
         ALOGI("service_name=%s\n", msg->service_name);
     }
@@ -4542,13 +4490,8 @@ static int dump_NanDataPathIndicationResponse(NanDataPathIndicationResponse* msg
     }
     ALOGI("cipher_type=%u\n", msg->cipher_type);
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
-    ALOGI("key_info: pmk info=%s\n", msg->key_info.body.pmk_info.pmk);
-    ALOGI("key_info: passphrase_info=%s\n", msg->key_info.body.passphrase_info.passphrase);
     ALOGI("service_name_len=%u\n", msg->service_name_len);
     ALOGI("scid_len=%u\n", msg->scid_len);
-    if (msg->scid_len) {
-        ALOGI("scid=%s\n", msg->scid);
-    }
     if (msg->service_name_len) {
         ALOGI("service_name=%s\n", msg->service_name);
     }
@@ -5152,7 +5095,7 @@ class NanEventCap : public WifiCommand
                             disabled_ind.reason = (NanStatusType)it.get_u8();
                             ALOGI("Nan Disable:status %u", disabled_ind.reason);
                         } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                            u8 len = min(it.get_len(), sizeof(disabled_ind.nan_reason) - 1);
+                            u8 len = min(it.get_len(), (sizeof(disabled_ind.nan_reason) - 1));
                             memcpy(disabled_ind.nan_reason, it.get_data(), len);
                             disabled_ind.nan_reason[len] = '\0';
                             ALOGI("nan disabled reason: %s, len = %d\n",
@@ -5179,7 +5122,7 @@ class NanEventCap : public WifiCommand
                             pub_term_event.reason = (NanStatusType)it.get_u8();
                             ALOGI("pub termination status %u", pub_term_event.reason);
                         } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                            u8 len = min(it.get_len(), sizeof(pub_term_event.nan_reason) - 1);
+                            u8 len = min(it.get_len(), (sizeof(pub_term_event.nan_reason) - 1));
                             memcpy(pub_term_event.nan_reason, it.get_data(), len);
                             pub_term_event.nan_reason[len] = '\0';
                             ALOGI("Pub termination nan reason: %s, len = %d\n",
@@ -5221,21 +5164,17 @@ class NanEventCap : public WifiCommand
 
                         } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                             u16 len = min(subscribe_event.service_specific_info_len,
-                                          sizeof(subscribe_event.service_specific_info) - 1);
+                                          sizeof(subscribe_event.service_specific_info));
                             memcpy(subscribe_event.service_specific_info, it.get_data(), len);
-                            subscribe_event.service_specific_info[len] = '\0';
-                            ALOGI("service info: %s", subscribe_event.service_specific_info);
 
                         } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN) {
-                            ALOGI("sdf match filter length: %d", subscribe_event.sdf_match_filter_len);
                             subscribe_event.sdf_match_filter_len = it.get_u16();
+                            ALOGI("sdf match filter length: %d",
+                                subscribe_event.sdf_match_filter_len);
 
                         } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER) {
                             memcpy(subscribe_event.sdf_match_filter, it.get_data(),
                                     subscribe_event.sdf_match_filter_len);
-                            subscribe_event.sdf_match_filter
-                                [subscribe_event.sdf_match_filter_len] = '\0';
-                            ALOGI("sdf match filter: %s", subscribe_event.sdf_match_filter);
                         } else if (attr_type == NAN_ATTRIBUTE_CIPHER_SUITE_TYPE) {
                             ALOGI("Peer Cipher suite type: %u", it.get_u8());
                             subscribe_event.peer_cipher_type = it.get_u8();
@@ -5245,9 +5184,6 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                             memcpy(subscribe_event.scid, it.get_data(),
                                     subscribe_event.scid_len);
-                            subscribe_event.scid
-                                [subscribe_event.scid_len] = '\0';
-                            ALOGI("scid: %s", subscribe_event.scid);
                         } else if (attr_type == NAN_ATTRIBUTE_RANGING_INDICATION) {
                             subscribe_event.range_info.ranging_event_type = it.get_u32();
                             ALOGI("ranging indication %d", it.get_u32());
@@ -5262,10 +5198,8 @@ class NanEventCap : public WifiCommand
                             subscribe_event.sdea_service_specific_info_len = it.get_u16();
                         } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                             u16 len = min(subscribe_event.sdea_service_specific_info_len,
-                                          sizeof(subscribe_event.sdea_service_specific_info) - 1);
+                                          sizeof(subscribe_event.sdea_service_specific_info));
                             memcpy(subscribe_event.sdea_service_specific_info, it.get_data(), len);
-                            subscribe_event.sdea_service_specific_info[len] = '\0';
-                            ALOGI("sdea service info: %s", subscribe_event.sdea_service_specific_info);
                         } else if (attr_type == NAN_ATTRIBUTE_MATCH_OCCURRED_FLAG) {
                             ALOGI("match occurred flag: %u", it.get_u8());
                             subscribe_event.match_occured_flag = it.get_u8();
@@ -5311,7 +5245,7 @@ class NanEventCap : public WifiCommand
                             sub_term_event.reason = (NanStatusType)it.get_u8();
                             ALOGI("sub termination status %u", sub_term_event.reason);
                         } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                            u8 len = min(it.get_len(), sizeof(sub_term_event.nan_reason) - 1);
+                            u8 len = min(it.get_len(), (sizeof(sub_term_event.nan_reason) - 1));
                             memcpy(sub_term_event.nan_reason, it.get_data(), len);
                             sub_term_event.nan_reason[len] = '\0';
                             ALOGI("sub termination nan reason: %s, len = %d\n",
@@ -5349,18 +5283,15 @@ class NanEventCap : public WifiCommand
 
                         } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                             u16 len = min(followup_event.service_specific_info_len,
-                                          sizeof(followup_event.service_specific_info) - 1);
+                                          sizeof(followup_event.service_specific_info));
                             memcpy(followup_event.service_specific_info, it.get_data(), len);
-                            followup_event.service_specific_info[len] = '\0';
                         } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
                             ALOGI("sdea svc length %d", it.get_u16());
                             followup_event.sdea_service_specific_info_len = it.get_u16();
                         } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                             u16 len = min(followup_event.sdea_service_specific_info_len,
-                                          sizeof(followup_event.sdea_service_specific_info) - 1);
+                                          sizeof(followup_event.sdea_service_specific_info));
                             memcpy(followup_event.sdea_service_specific_info, it.get_data(), len);
-                            followup_event.sdea_service_specific_info[len] = '\0';
-                            ALOGI("sdea service info: %s", followup_event.sdea_service_specific_info);
                         }
                     }
 
@@ -5462,9 +5393,6 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                             memcpy(ndp_request_event.app_info.ndp_app_info,
                                     it.get_data(), ndp_ind_app_info_len);
-                            ndp_request_event.app_info.ndp_app_info[ndp_ind_app_info_len] = '\0';
-                            ALOGI("service info: %s\n", ndp_request_event.app_info.ndp_app_info);
-
                         } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
                             ALOGI("scid length %d\n", it.get_u32());
                             ndp_request_event.scid_len= it.get_u32();
@@ -5472,8 +5400,6 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                             memcpy(ndp_request_event.scid, it.get_data(),
                                 ndp_request_event.scid_len);
-                            ndp_request_event.scid[ndp_request_event.scid_len] = '\0';
-                            ALOGI("scid: %s\n", ndp_request_event.scid);
                         }
                     }
 
@@ -5508,11 +5434,6 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                             memcpy(ndp_create_confirmation_event.app_info.ndp_app_info, it.get_data(),
                                     ndp_conf_app_info_len);
-                            ndp_create_confirmation_event.app_info.ndp_app_info[ndp_conf_app_info_len] =
-                                '\0';
-                            ALOGI("service info string: %s\n",
-                                    ndp_create_confirmation_event.app_info.ndp_app_info);
-
                         } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
                             ALOGI("response code %u\n", (NanDataPathResponseCode) it.get_u8());
                             ndp_create_confirmation_event.rsp_code =
@@ -5576,7 +5497,7 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
                             followup_ind.reason = (NanStatusType)it.get_u8();
                         } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                            u8 len = min(it.get_len(), sizeof(followup_ind.nan_reason) - 1);
+                            u8 len = min(it.get_len(), (sizeof(followup_ind.nan_reason) - 1));
                             memcpy(followup_ind.nan_reason, it.get_data(), len);
                             followup_ind.nan_reason[len] = '\0';
                             ALOGI("nan transmit followup ind: reason: %s, len = %d\n",
@@ -5684,9 +5605,6 @@ wifi_error nan_data_request_initiator(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_req++;
     if (msg->service_name_len) {
-        u16 len = min(msg->service_name_len, sizeof(msg->service_name) - 1);
-        msg->service_name[len] = '\0';
-
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
@@ -5772,9 +5690,6 @@ wifi_error nan_data_indication_response(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_resp++;
     if (msg->service_name_len) {
-        u16 len = min(msg->service_name_len, sizeof(msg->service_name) - 1);
-        msg->service_name[len] = '\0';
-
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
