@@ -3555,9 +3555,7 @@ class NanMacControl : public WifiCommand
             ALOGI("NanMacControl:Received response for cmd [%s], TxID %d ret %d\n",
                     NanRspToString(rsp_data.response_type), id(), rsp_data.status);
 
-            if (rsp_data.status != NAN_STATUS_SUCCESS) {
-                GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
-            }
+            GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
         }
         return NL_SKIP;
     }
