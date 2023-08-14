@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -710,13 +710,13 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler cleaned_up_handler
             ALOGI("Cancelling command %p:%s", cmd, cmd->getType());
             pthread_mutex_unlock(&info->cb_lock);
             cmd->cancel();
-            pthread_mutex_lock(&info->cb_lock);
             if (num_cmd == info->num_cmd) {
                 ALOGI("Cancelling command %p:%s did not work", cmd, (cmd ? cmd->getType(): ""));
                 bad_commands++;
             }
             /* release reference added when command is saved */
             cmd->releaseRef();
+            pthread_mutex_lock(&info->cb_lock);
         }
     }
 
@@ -1098,7 +1098,7 @@ public:
          */
         ALOGI("Try to remove event handler if exist, vendor 0x%0x, subcmd 0x%x",
             GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
-        unregisterVendorHandlerWithoutLock(GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
+        unregisterVendorHandler(GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
         ALOGI("SetRSSIMonitorCommand %p destroyed", this);
    }
 
