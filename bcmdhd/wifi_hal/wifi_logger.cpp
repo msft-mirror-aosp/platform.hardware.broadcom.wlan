@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1665,6 +1665,7 @@ public:
         : WifiCommand("RingDump", iface, id), mLargestBuffSize(0), mBuff(NULL),
         mErrCode(0)
     {
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
     }
 
     int start() {
@@ -1705,6 +1706,7 @@ public:
                 ring_name[i] = NULL;
             }
         }
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
 
         DUMP_INFO(("Stop Ring Dump Successfully Completed, mErrCode = %d\n", mErrCode));
         return WIFI_SUCCESS;
