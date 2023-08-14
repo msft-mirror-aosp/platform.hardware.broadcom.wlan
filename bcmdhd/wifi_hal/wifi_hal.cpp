@@ -100,6 +100,10 @@ static wifi_error wifi_get_supported_radio_combinations_matrix(wifi_handle handl
 static void wifi_cleanup_dynamic_ifaces(wifi_handle handle);
 static wifi_error wifi_enable_tx_power_limits(wifi_interface_handle iface,
         bool isEnable);
+wifi_error wifi_get_cached_scan_results(wifi_interface_handle iface,
+    wifi_cached_scan_result_handler handler);
+wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
+    u32 channelCategoryEnableFlag);
 
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
@@ -117,6 +121,7 @@ typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_THERMAL_COMPLETION_WINDOW  = 12,
     ANDR_WIFI_ATTRIBUTE_VOIP_MODE                  = 13,
     ANDR_WIFI_ATTRIBUTE_DTIM_MULTIPLIER            = 14,
+    ANDR_WIFI_ATTRIBUTE_CHAN_POLICY                = 15,
      // Add more attribute here
     ANDR_WIFI_ATTRIBUTE_MAX
 } wifi_attr_t;
@@ -355,7 +360,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_nan_rtt_chre_disable_request = nan_chre_disable_request;
     fn->wifi_chre_register_handler = nan_chre_register_handler;
     fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
-
+    fn->wifi_get_cached_scan_results = wifi_get_cached_scan_results;
+    fn->wifi_enable_sta_channel_for_peer_network = wifi_enable_sta_channel_for_peer_network;
     return WIFI_SUCCESS;
 }
 #ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
@@ -3054,5 +3060,49 @@ wifi_error wifi_enable_tx_power_limits(wifi_interface_handle handle, bool isEnab
     ALOGD("Configuring the tx power limits , halHandle = %p\n", handle);
 
     EnableTxPowerLimit command(handle, isEnable);
+    return (wifi_error) command.requestResponse();
+}
+
+//////////////////////////////////////////////////////
+class EnableStaChannel : public WifiCommand {
+
+private:
+    u32 mChannelCatEnabFlag;
+public:
+    EnableStaChannel(wifi_interface_handle handle, u32 channelCategoryEnableFlag)
+        : WifiCommand("EnableStaChannel", handle, 0) {
+        mChannelCatEnabFlag = channelCategoryEnableFlag;
+    }
+    virtual int create() {
+        int ret;
+
+        ret = mMsg.create(GOOGLE_OUI, WIFI_SUBCMD_CHANNEL_POLICY);
+        if (ret < 0) {
+            ALOGE("Can't create message to send to driver - %d", ret);
+            return ret;
+        }
+
+        nlattr *data = mMsg.attr_start(NL80211_ATTR_VENDOR_DATA);
+        ret = mMsg.put_u32(ANDR_WIFI_ATTRIBUTE_CHAN_POLICY, mChannelCatEnabFlag);
+        if (ret < 0) {
+             return ret;
+        }
+
+        mMsg.attr_end(data);
+        return WIFI_SUCCESS;
+    }
+};
+
+/* enable or disable the feature of allowing current STA-connected
+ * channel for WFA GO, SAP and Wi-Fi Aware when the regulatory allows.
+ */
+wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
+        u32 channelCategoryEnableFlag) {
+    int numIfaceHandles = 0;
+    wifi_interface_handle *ifaceHandles = NULL;
+    wifi_interface_handle wlan0Handle;
+
+    wlan0Handle = wifi_get_wlan_interface((wifi_handle)handle, ifaceHandles, numIfaceHandles);
+    EnableStaChannel command(wlan0Handle, channelCategoryEnableFlag);
     return (wifi_error) command.requestResponse();
 }
