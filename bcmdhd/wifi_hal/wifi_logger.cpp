@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1665,6 +1665,7 @@ public:
         : WifiCommand("RingDump", iface, id), mLargestBuffSize(0), mBuff(NULL),
         mErrCode(0)
     {
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
     }
 
     int start() {
@@ -1705,6 +1706,7 @@ public:
                 ring_name[i] = NULL;
             }
         }
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
 
         DUMP_INFO(("Stop Ring Dump Successfully Completed, mErrCode = %d\n", mErrCode));
         return WIFI_SUCCESS;
@@ -2350,6 +2352,7 @@ public:
     int createMonitorPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_START_PKT_FATE_MONITORING);
         if (result < 0) {
+            ALOGE("Failed to create monitorPktFate result:%d\n", result);
             return result;
         }
 
@@ -2361,6 +2364,7 @@ public:
     int createTxPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_GET_TX_PKT_FATES);
         if (result < 0) {
+            ALOGE("Failed to create TxPktFate result:%d\n", result);
             return result;
         }
 
@@ -2368,10 +2372,12 @@ public:
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
         if (result < 0) {
+            ALOGE("Failed to set TxPktFate num result:%d mNoReqFates:%d\n", result, mNoReqFates);
             return result;
         }
         result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
         if (result < 0) {
+            ALOGE("Failed to set TxPktFate buf result:%d\n", result);
             return result;
         }
         request.attr_end(data);
@@ -2381,6 +2387,7 @@ public:
     int createRxPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_GET_RX_PKT_FATES);
         if (result < 0) {
+            ALOGE("Failed to create RxPktFate result:%d\n", result);
             return result;
         }
 
@@ -2388,10 +2395,12 @@ public:
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
         if (result < 0) {
+            ALOGE("Failed to set RxPktFate num result:%d mNoReqFates:%d\n", result, mNoReqFates);
             return result;
         }
         result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
         if (result < 0) {
+            ALOGE("Failed to set RxPktFate buf result:%d\n", result);
             return result;
         }
         request.attr_end(data);
