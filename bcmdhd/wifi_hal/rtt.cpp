@@ -131,7 +131,7 @@ get_err_info(int status)
     for (i = 0; i < (int) num_entries; i++)
     {
         if (p_entry->id == status)
-            return p_entry->text;
+            return p_entry->text.c_str();
         p_entry++;		/* next entry */
     }
     return "unknown error";			/* not found */
