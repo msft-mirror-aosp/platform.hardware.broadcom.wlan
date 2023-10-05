@@ -33,6 +33,7 @@
 #define DEFAULT_CMD_SIZE        (64)
 #define DOT11_OUI_LEN             3
 #define DOT11_MAX_SSID_LEN        32
+#define MAX_CACHED_SCAN_RESULT    32
 
 #define ETHERTYPE_IP            0x0800          /* IP */
 #define ETHERTYPE_IPV6          0x86dd          /* IP protocol version 6 */
@@ -142,6 +143,9 @@ typedef enum {
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START = 0x2160,
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_END   = 0x216F,
 
+    /* define scan related commands between 0x2170 and 0x2175 */
+    ANDROID_NL80211_SUBCMD_SCAN_START = 0x2170,
+    ANDROID_NL80211_SUBCMD_SCAN_END = 0x2175,
     /* This is reserved for future usage */
 
 } ANDROID_VENDOR_SUB_COMMAND;
@@ -187,6 +191,7 @@ typedef enum {
     WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION,         /* 0x101c */
     WIFI_SUBCMD_SET_MULTISTA_USE_CASE,                   /* 0x101d */
     WIFI_SUBCMD_SET_DTIM_CONFIG,                         /* 0x101e */
+    WIFI_SUBCMD_CHANNEL_POLICY,                          /* 0x101f */
 
     GSCAN_SUBCMD_MAX,
 
@@ -234,6 +239,7 @@ typedef enum {
     WIFI_SUBCMD_TRIGGER_SSR = ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START,
     WIFI_SUBCMD_GET_RADIO_COMBO_MATRIX,
     WIFI_SUBCMD_ENABLE_TX_POWER_LIMIT,
+    WIFI_SUBCMD_GET_CACHED_SCAN_RESULTS = ANDROID_NL80211_SUBCMD_SCAN_START,
 } WIFI_SUB_COMMAND;
 
 typedef enum {
