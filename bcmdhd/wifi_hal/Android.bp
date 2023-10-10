@@ -84,6 +84,7 @@ cc_library_static {
         "wifi_logger.cpp",
         "wifi_offload.cpp",
         "twt.cpp",
+        "scan.cpp",
     ],
 
     proprietary: true,
