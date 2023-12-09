@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -104,6 +104,11 @@ wifi_error wifi_get_cached_scan_results(wifi_interface_handle iface,
     wifi_cached_scan_result_handler handler);
 wifi_error wifi_enable_sta_channel_for_peer_network(wifi_handle handle,
     u32 channelCategoryEnableFlag);
+wifi_error wifi_nan_suspend_request(transaction_id id,
+    wifi_interface_handle iface, NanSuspendRequest* msg);
+wifi_error wifi_nan_resume_request(transaction_id id,
+    wifi_interface_handle iface, NanResumeRequest* msg);
+
 
 typedef enum wifi_attr {
     ANDR_WIFI_ATTRIBUTE_INVALID                    = 0,
@@ -362,6 +367,8 @@ wifi_error init_wifi_vendor_hal_func_table(wifi_hal_fn *fn)
     fn->wifi_enable_tx_power_limits = wifi_enable_tx_power_limits;
     fn->wifi_get_cached_scan_results = wifi_get_cached_scan_results;
     fn->wifi_enable_sta_channel_for_peer_network = wifi_enable_sta_channel_for_peer_network;
+    fn->wifi_nan_suspend_request = wifi_nan_suspend_request;
+    fn->wifi_nan_resume_request = wifi_nan_resume_request;
     return WIFI_SUCCESS;
 }
 #ifdef GOOGLE_WIFI_FW_CONFIG_VERSION_C_WRAPPER
@@ -608,7 +615,6 @@ static int wifi_add_membership(wifi_handle handle, const char *group)
 static void internal_cleaned_up_handler(wifi_handle handle)
 {
     hal_info *info = getHalInfo(handle);
-    wifi_cleaned_up_handler cleaned_up_handler = info->cleaned_up_handler;
 
     ALOGI("internal clean up");
 
@@ -622,12 +628,13 @@ static void internal_cleaned_up_handler(wifi_handle handle)
         info->event_sock = NULL;
     }
 
-    if (cleaned_up_handler) {
-        ALOGI("cleanup_handler cb");
-        (*cleaned_up_handler)(handle);
-    } else {
-        ALOGI("!! clean up handler is null!!");
+    if (info->interfaces) {
+        for (int i = 0; i < info->num_interfaces; i++) {
+            free(info->interfaces[i]);
+        }
+        free(info->interfaces);
     }
+
     DestroyResponseLock();
     pthread_mutex_destroy(&info->cb_lock);
     free(info);
@@ -641,7 +648,7 @@ void wifi_internal_module_cleanup()
     twt_deinit_handler();
 }
 
-void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
+void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler cleaned_up_handler)
 {
     if (!handle) {
         ALOGE("Handle is null");
@@ -654,8 +661,6 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     int numIfaceHandles = 0;
     wifi_interface_handle *ifaceHandles = NULL;
     wifi_interface_handle wlan0Handle;
-
-    info->cleaned_up_handler = handler;
 
     wlan0Handle = wifi_get_wlan_interface((wifi_handle) info, ifaceHandles, numIfaceHandles);
 
@@ -705,13 +710,13 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
             ALOGI("Cancelling command %p:%s", cmd, cmd->getType());
             pthread_mutex_unlock(&info->cb_lock);
             cmd->cancel();
-            pthread_mutex_lock(&info->cb_lock);
             if (num_cmd == info->num_cmd) {
                 ALOGI("Cancelling command %p:%s did not work", cmd, (cmd ? cmd->getType(): ""));
                 bad_commands++;
             }
             /* release reference added when command is saved */
             cmd->releaseRef();
+            pthread_mutex_lock(&info->cb_lock);
         }
     }
 
@@ -727,6 +732,14 @@ void wifi_cleanup(wifi_handle handle, wifi_cleaned_up_handler handler)
     pthread_mutex_unlock(&info->cb_lock);
 
     info->clean_up = true;
+
+    /* global func ptr be invalidated and will not call any command from legacy hal */
+    if (cleaned_up_handler) {
+        ALOGI("cleaned_up_handler to invalidates func ptr");
+        cleaned_up_handler(handle);
+    } else {
+        ALOGI("cleaned up handler is null");
+    }
 
     if (TEMP_FAILURE_RETRY(write(info->cleanup_socks[0], "Exit", 4)) < 1) {
         // As a fallback set the cleanup flag to TRUE
@@ -1085,7 +1098,7 @@ public:
          */
         ALOGI("Try to remove event handler if exist, vendor 0x%0x, subcmd 0x%x",
             GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
-        unregisterVendorHandlerWithoutLock(GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
+        unregisterVendorHandler(GOOGLE_OUI, GOOGLE_RSSI_MONITOR_EVENT);
         ALOGI("SetRSSIMonitorCommand %p destroyed", this);
    }
 
@@ -1264,8 +1277,10 @@ class AndroidPktFilterCommand : public WifiCommand {
     int createSetPktFilterRequest(WifiRequest& request) {
         u8 *program = new u8[mProgramLen];
         NULL_CHECK_RETURN(program, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+        ALOGE("Success to allocate program of len: %d\n", mProgramLen);
         int result = request.create(GOOGLE_OUI, APF_SUBCMD_SET_FILTER);
         if (result < 0) {
+            ALOGE("Failed to create cmd: %d, err %d\n", APF_SUBCMD_SET_FILTER, result);
             delete[] program;
             return result;
         }
@@ -1273,11 +1288,13 @@ class AndroidPktFilterCommand : public WifiCommand {
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(APF_ATTRIBUTE_PROGRAM_LEN, mProgramLen);
         if (result < 0) {
+            ALOGE("Failed to put the program_len %d, err %d\n", mProgramLen, result);
             goto exit;
         }
         memcpy(program, mProgram, mProgramLen);
         result = request.put(APF_ATTRIBUTE_PROGRAM, program, mProgramLen);
         if (result < 0) {
+            ALOGE("Failed to copy program_ptr %d, err %d\n", mProgramLen, result);
             goto exit;
         }
 exit:   request.attr_end(data);
@@ -1310,6 +1327,7 @@ exit:   request.attr_end(data);
         WifiRequest request(familyId(), ifaceId());
         int result = createRequest(request);
         if (result < 0) {
+            ALOGI("CreateRequest failed for APF, result = %d", result);
             return result;
         }
         result = requestResponse(request);
@@ -1326,7 +1344,7 @@ exit:   request.attr_end(data);
     }
 
     int handleResponse(WifiEvent& reply) {
-        ALOGD("In SetAPFCommand::handleResponse");
+        ALOGE("In SetAPFCommand::handleResponse mReqType %d\n", mReqType);
 
         if (reply.get_cmd() != NL80211_CMD_VENDOR) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
@@ -1339,13 +1357,13 @@ exit:   request.attr_end(data);
         nlattr *vendor_data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
+        ALOGI("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (vendor_data == NULL || len == 0) {
             ALOGE("no vendor data in SetAPFCommand response; ignoring it");
             return NL_SKIP;
         }
-        if( mReqType == SET_APF_PROGRAM) {
-            ALOGD("Response received for set packet filter command\n");
+        if (mReqType == SET_APF_PROGRAM) {
+            ALOGE("Response received for set packet filter command\n");
         } else if (mReqType == GET_APF_CAPABILITIES) {
             *mVersion = 0;
             *mMaxLen = 0;
@@ -1712,6 +1730,11 @@ wifi_error wifi_init_interfaces(wifi_handle handle)
         if (is_wifi_interface(de->d_name)) {
             interface_info *ifinfo = (interface_info *)malloc(sizeof(interface_info));
             if (!ifinfo) {
+                if (info->interfaces) {
+                    for (int j = 0; j < i; j++) {
+                        free(info->interfaces[j]);
+                    }
+                }
                 free(info->interfaces);
                 info->num_interfaces = 0;
                 closedir(d);
@@ -1719,6 +1742,7 @@ wifi_error wifi_init_interfaces(wifi_handle handle)
             }
             memset(ifinfo, 0, sizeof(interface_info));
             if (get_interface(de->d_name, ifinfo) != WIFI_SUCCESS) {
+                free(ifinfo);
                 continue;
             }
             /* Mark as static iface */
@@ -1976,7 +2000,15 @@ static wifi_error wifi_get_packet_filter_capabilities(wifi_interface_handle hand
 static wifi_error wifi_set_packet_filter(wifi_interface_handle handle,
         const u8 *program, u32 len)
 {
-    ALOGD("Setting APF program, halHandle = %p\n", handle);
+    char iface_name[IFNAMSIZ];
+
+    ALOGE("Setting APF program, halHandle = %p\n", handle);
+    if (wifi_get_iface_name(handle, iface_name, sizeof(iface_name)) != WIFI_SUCCESS) {
+       ALOGE("%s : Invalid interface handle\n", __func__);
+       return WIFI_ERROR_INVALID_ARGS;
+    }
+    ALOGE("Set apf filter for iface = %s\n", iface_name);
+
     AndroidPktFilterCommand *cmd = new AndroidPktFilterCommand(handle, program, len);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     wifi_error result = (wifi_error)cmd->start();
@@ -2652,26 +2684,34 @@ wifi_error wifi_virtual_interface_delete(wifi_handle handle, const char* ifname)
         return WIFI_ERROR_UNKNOWN;
     }
 
+    /* Check if interface delete requested on valid interface */
     while (i < info->max_num_interfaces) {
         if (info->interfaces[i] != NULL &&
             strncmp(info->interfaces[i]->name,
             ifname, sizeof(info->interfaces[i]->name)) == 0) {
-            if (info->interfaces[i]->is_virtual == false) {
-                ALOGI("%s: %s is static iface, skip delete\n",
-                    __FUNCTION__, ifname);
-                    return WIFI_SUCCESS;
+            if (!get_halutil_mode()) {
+                if (info->interfaces[i]->is_virtual == false) {
+                    ALOGI("%s: %s is static iface, skip delete\n",
+                        __FUNCTION__, ifname);
+                        return WIFI_SUCCESS;
+                }
+            } else {
+                ALOGI("%s: %s delete iface", __FUNCTION__, ifname);
+                break;
+            }
         }
-    }
         i++;
     }
 
-    ALOGD("%s: iface name=%s\n", __FUNCTION__, ifname);
+    ALOGI("%s: iface name=%s\n", __FUNCTION__, ifname);
     wlan0Handle = wifi_get_wlan_interface((wifi_handle)handle, ifaceHandles, numIfaceHandles);
     VirtualIfaceConfig command(wlan0Handle, ifname, (nl80211_iftype)0, 0);
     ret = (wifi_error)command.deleteIface();
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s: Iface delete Error:%d", __FUNCTION__,ret);
-        return ret;
+        /* If lower layer returns an error, hang event is expected to do wifi reset
+         * and hal state needs to be cleared irrespectivily. Hence fall-through.
+         */
     }
     /* Update dynamic interface list */
     added_ifaces.erase(std::remove(added_ifaces.begin(), added_ifaces.end(), std::string(ifname)),

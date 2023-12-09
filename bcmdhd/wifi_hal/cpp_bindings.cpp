@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -653,8 +653,15 @@ int WifiCommand::requestResponse(WifiRequest& request) {
     int err = 0;
 
     struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
-    if (!cb)
+    if (!cb) {
+        ALOGE("nl80211: cb alloc failed");
         goto out;
+    }
+
+    if (!mInfo->cmd_sock) {
+        ALOGE("cmd_sock is already freed mInfo:%p mIfaceInfo:%p\n", mInfo, mIfaceInfo);
+        goto out;
+    }
 
     err = nl_send_auto_complete(mInfo->cmd_sock, request.getMessage());    /* send message */
     if (err < 0)
