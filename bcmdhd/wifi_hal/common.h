@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,10 +56,13 @@ const uint32_t BRCM_OUI =  0x001018;
 #define NMRSTR "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
 #define NAN_MASTER_RANK_LEN 8
 #define NAN_SCID_INFO_LEN   16
+#define NAN_MAX_NDP_PEER 8u
+#define NAN_MAX_NDP_COUNT_SIZE NAN_MAX_NDP_PEER * sizeof(NanDataPathId)
 
 #define SAR_CONFIG_SCENARIO_COUNT      100
 #define MAX_NUM_RADIOS 3
 #define MAX_CMD_RESP_BUF_LEN 8192
+#define MAX_MLO_LINK 3
 
 /*
  This enum defines ranges for various commands; commands themselves
@@ -215,6 +218,8 @@ typedef enum {
     NAN_SUBCMD_DATA_PATH_SEC_INFO,                      /* 0x1710 */
     NAN_SUBCMD_VERSION_INFO,                            /* 0x1711 */
     NAN_SUBCMD_ENABLE_MERGE,                            /* 0x1712 */
+    NAN_SUBCMD_SUSPEND,                                 /* 0x1713 */
+    NAN_SUBCMD_RESUME,                                  /* 0x1714 */
     APF_SUBCMD_GET_CAPABILITIES = ANDROID_NL80211_SUBCMD_PKT_FILTER_RANGE_START,
     APF_SUBCMD_SET_FILTER,
     APF_SUBCMD_READ_FILTER,
@@ -286,7 +291,8 @@ typedef enum {
     NAN_ASYNC_RESPONSE_DISABLED			= 40,
     BRCM_VENDOR_EVENT_TWT			= 43,
     BRCM_TPUT_DUMP_EVENT			= 44,
-    NAN_EVENT_MATCH_EXPIRY			= 45
+    NAN_EVENT_MATCH_EXPIRY			= 45,
+    NAN_EVENT_SUSPENSION_STATUS                 = 49
 } WIFI_EVENT;
 
 typedef void (*wifi_internal_event_handler) (wifi_handle handle, int events);
