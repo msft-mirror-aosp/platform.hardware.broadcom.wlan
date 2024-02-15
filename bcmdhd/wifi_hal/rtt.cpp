@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,7 +134,7 @@ get_err_info(int status)
     for (i = 0; i < (int) num_entries; i++)
     {
         if (p_entry->id == status)
-            return p_entry->text;
+            return p_entry->text.c_str();
         p_entry++;		/* next entry */
     }
     return "unknown error";			/* not found */
