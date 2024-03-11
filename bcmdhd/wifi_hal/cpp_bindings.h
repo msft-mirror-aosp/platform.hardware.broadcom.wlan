@@ -189,12 +189,17 @@ public:
     }
 
     /* Command assembly helpers */
-    int create(int family, uint8_t cmd, int flags, int hdrlen);
+    int create(int family, uint8_t cmd, int flags, int data_len);
     int create(uint8_t cmd) {
         return create(mFamily, cmd, 0, 0);
     }
 
+    int create_custom_len(uint8_t cmd, int data_len) {
+        return create(mFamily, cmd, 0, data_len);
+    }
+
     int create(uint32_t id, int subcmd);
+    int create_custom_len(uint32_t id, int subcmd, int data_len);
 
     int put(int attribute, void *ptr, unsigned len) {
         return nla_put(mMsg, attribute, len, ptr);
