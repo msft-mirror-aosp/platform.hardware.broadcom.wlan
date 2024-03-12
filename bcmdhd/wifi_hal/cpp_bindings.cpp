@@ -565,14 +565,23 @@ int WifiEvent::parse() {
     return result;
 }
 
-int WifiRequest::create(int family, uint8_t cmd, int flags, int hdrlen) {
+int WifiRequest::create(int family, uint8_t cmd, int flags, int data_len) {
 
     destroy();
 
-    mMsg = nlmsg_alloc();
+    /* If data_len is 0, default msg size will be used
+     * (nlmsg_alloc uses PAGE_SIZE by default).
+     * data_len is requested specifically for cases where len needs
+     * to be greater than default_size.
+     */
+    if (data_len) {
+        mMsg = nlmsg_alloc_size(data_len);
+    } else {
+        mMsg = nlmsg_alloc();
+    }
     if (mMsg != NULL) {
         genlmsg_put(mMsg, /* pid = */ 0, /* seq = */ 0, family,
-                hdrlen, flags, cmd, /* version = */ 0);
+                0, flags, cmd, /* version = */ 0);
         return WIFI_SUCCESS;
     } else {
         return WIFI_ERROR_OUT_OF_MEMORY;
@@ -609,6 +618,25 @@ static int mapErrorCodes(int err)
     }
     ALOGD("error code %d mapped to %d", err, ret);
     return ret;
+}
+
+int WifiRequest::create_custom_len(uint32_t id, int subcmd, int data_len) {
+    int res = create_custom_len(NL80211_CMD_VENDOR, data_len);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+    res = put_u32(NL80211_ATTR_VENDOR_ID, id);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+    res = put_u32(NL80211_ATTR_VENDOR_SUBCMD, subcmd);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+    if (mIface != -1) {
+        res = set_iface_id(mIface);
+    }
+    return mapErrorCodes(res);
 }
 
 int WifiRequest::create(uint32_t id, int subcmd) {

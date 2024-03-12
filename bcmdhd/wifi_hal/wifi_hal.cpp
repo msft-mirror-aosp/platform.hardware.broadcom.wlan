@@ -1276,9 +1276,17 @@ class AndroidPktFilterCommand : public WifiCommand {
 
     int createSetPktFilterRequest(WifiRequest& request) {
         u8 *program = new u8[mProgramLen];
+        int result;
+
         NULL_CHECK_RETURN(program, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-        ALOGE("Success to allocate program of len: %d\n", mProgramLen);
-        int result = request.create(GOOGLE_OUI, APF_SUBCMD_SET_FILTER);
+
+        ALOGI("mProgramLen : %d\n", mProgramLen);
+        if (mProgramLen > NL_MSG_DEFAULT_LEN) {
+            result = request.create_custom_len(GOOGLE_OUI, APF_SUBCMD_SET_FILTER,
+                    NL_MSG_MAX_LEN);
+        } else {
+            result = request.create(GOOGLE_OUI, APF_SUBCMD_SET_FILTER);
+        }
         if (result < 0) {
             ALOGE("Failed to create cmd: %d, err %d\n", APF_SUBCMD_SET_FILTER, result);
             delete[] program;
