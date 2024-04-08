@@ -18,7 +18,6 @@ LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
 
-LOCAL_REQUIRED_MODULES := libhardware_legacy
 LOCAL_LDLIBS := -llog
 
 LOCAL_CFLAGS += -Wno-unused-parameter -Wno-int-to-pointer-cast
@@ -29,8 +28,8 @@ LOCAL_C_INCLUDES += \
         frameworks/opt/net/wifi/libwifi_hal/include/wifi_hal \
         frameworks/opt/net/wifi/libwifi_system_iface/include/wifi_system \
         hardware/broadcom/wlan/bcmdhd/wifi_hal \
+        hardware/interfaces/wifi/legacy_headers/include/hardware_legacy \
         external/libnl/include \
-        $(call include-path-for, libhardware_legacy)/hardware_legacy \
         external/wpa_supplicant_8/src/drivers \
         libcore/include
 
