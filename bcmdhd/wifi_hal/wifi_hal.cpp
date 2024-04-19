@@ -1274,16 +1274,16 @@ class AndroidPktFilterCommand : public WifiCommand {
 
     int createRequest(WifiRequest& request) {
         if (mReqType == SET_APF_PROGRAM) {
-            ALOGI("\n%s: APF set program request\n", __FUNCTION__);
+            ALOGI("%s: APF set program request\n", __FUNCTION__);
             return createSetPktFilterRequest(request);
         } else if (mReqType == GET_APF_CAPABILITIES) {
-            ALOGI("\n%s: APF get capabilities request\n", __FUNCTION__);
+            ALOGI("%s: APF get capabilities request\n", __FUNCTION__);
 	    return createGetPktFilterCapabilitesRequest(request);
         } else if (mReqType == READ_APF_PROGRAM) {
-            ALOGI("\n%s: APF read packet filter request\n", __FUNCTION__);
+            ALOGI("%s: APF read packet filter request\n", __FUNCTION__);
             return createReadPktFilterRequest(request);
         } else {
-            ALOGE("\n%s Unknown APF request\n", __FUNCTION__);
+            ALOGE("%s Unknown APF request\n", __FUNCTION__);
             return WIFI_ERROR_NOT_SUPPORTED;
         }
         return WIFI_SUCCESS;
