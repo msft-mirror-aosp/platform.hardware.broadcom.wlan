@@ -23,6 +23,8 @@
 
 #define LOG_TAG  "WifiHAL"
 
+#include <unistd.h>
+
 #include <log/log.h>
 #include "nl80211_copy.h"
 #include "sync.h"
@@ -64,8 +66,9 @@ const uint32_t BRCM_OUI =  0x001018;
 #define MAX_CMD_RESP_BUF_LEN 8192
 #define MAX_MLO_LINK 3
 
+
 #define NL_MSG_MAX_LEN        5120u
-#define NL_MSG_DEFAULT_LEN    (PAGE_SIZE -  NLMSG_HDRLEN)
+#define NL_MSG_DEFAULT_LEN    (getpagesize() -  NLMSG_HDRLEN)
 
 /*
  This enum defines ranges for various commands; commands themselves
