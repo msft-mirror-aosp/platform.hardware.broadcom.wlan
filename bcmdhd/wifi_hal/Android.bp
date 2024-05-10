@@ -61,7 +61,7 @@ cc_library_static {
 
     header_libs: [
         "libnetlink_iface_headers",
-        "libhardware_legacy_headers",
+        "wifi_legacy_headers",
     ],
 
     shared_libs: [
@@ -84,6 +84,7 @@ cc_library_static {
         "wifi_logger.cpp",
         "wifi_offload.cpp",
         "twt.cpp",
+        "scan.cpp",
     ],
 
     proprietary: true,
