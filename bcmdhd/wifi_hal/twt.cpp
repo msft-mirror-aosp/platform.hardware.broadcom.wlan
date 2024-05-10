@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2020 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -367,7 +367,7 @@ protected:
         nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (data == NULL || len == 0) {
             ALOGE("no vendor data in GetTwtCapabilitiesCommand response; ignoring it\n");
             return NL_SKIP;
@@ -463,7 +463,7 @@ protected:
         nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (data == NULL || len == 0) {
             ALOGE("no vendor data in GetTwtStatsCommand response; ignoring it\n");
             return NL_SKIP;

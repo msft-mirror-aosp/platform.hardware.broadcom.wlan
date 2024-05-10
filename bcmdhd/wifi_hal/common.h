@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@
 #define DEFAULT_CMD_SIZE        (64)
 #define DOT11_OUI_LEN             3
 #define DOT11_MAX_SSID_LEN        32
+#define MAX_CACHED_SCAN_RESULT    32
 
 #define ETHERTYPE_IP            0x0800          /* IP */
 #define ETHERTYPE_IPV6          0x86dd          /* IP protocol version 6 */
@@ -55,10 +56,13 @@ const uint32_t BRCM_OUI =  0x001018;
 #define NMRSTR "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
 #define NAN_MASTER_RANK_LEN 8
 #define NAN_SCID_INFO_LEN   16
+#define NAN_MAX_NDP_PEER 8u
+#define NAN_MAX_NDP_COUNT_SIZE NAN_MAX_NDP_PEER * sizeof(NanDataPathId)
 
 #define SAR_CONFIG_SCENARIO_COUNT      100
 #define MAX_NUM_RADIOS 3
 #define MAX_CMD_RESP_BUF_LEN 8192
+#define MAX_MLO_LINK 3
 
 /*
  This enum defines ranges for various commands; commands themselves
@@ -142,6 +146,9 @@ typedef enum {
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START = 0x2160,
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_END   = 0x216F,
 
+    /* define scan related commands between 0x2170 and 0x2175 */
+    ANDROID_NL80211_SUBCMD_SCAN_START = 0x2170,
+    ANDROID_NL80211_SUBCMD_SCAN_END = 0x2175,
     /* This is reserved for future usage */
 
 } ANDROID_VENDOR_SUB_COMMAND;
@@ -187,6 +194,7 @@ typedef enum {
     WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION,         /* 0x101c */
     WIFI_SUBCMD_SET_MULTISTA_USE_CASE,                   /* 0x101d */
     WIFI_SUBCMD_SET_DTIM_CONFIG,                         /* 0x101e */
+    WIFI_SUBCMD_CHANNEL_POLICY,                          /* 0x101f */
 
     GSCAN_SUBCMD_MAX,
 
@@ -210,6 +218,8 @@ typedef enum {
     NAN_SUBCMD_DATA_PATH_SEC_INFO,                      /* 0x1710 */
     NAN_SUBCMD_VERSION_INFO,                            /* 0x1711 */
     NAN_SUBCMD_ENABLE_MERGE,                            /* 0x1712 */
+    NAN_SUBCMD_SUSPEND,                                 /* 0x1713 */
+    NAN_SUBCMD_RESUME,                                  /* 0x1714 */
     APF_SUBCMD_GET_CAPABILITIES = ANDROID_NL80211_SUBCMD_PKT_FILTER_RANGE_START,
     APF_SUBCMD_SET_FILTER,
     APF_SUBCMD_READ_FILTER,
@@ -234,6 +244,7 @@ typedef enum {
     WIFI_SUBCMD_TRIGGER_SSR = ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START,
     WIFI_SUBCMD_GET_RADIO_COMBO_MATRIX,
     WIFI_SUBCMD_ENABLE_TX_POWER_LIMIT,
+    WIFI_SUBCMD_GET_CACHED_SCAN_RESULTS = ANDROID_NL80211_SUBCMD_SCAN_START,
 } WIFI_SUB_COMMAND;
 
 typedef enum {
@@ -280,7 +291,8 @@ typedef enum {
     NAN_ASYNC_RESPONSE_DISABLED			= 40,
     BRCM_VENDOR_EVENT_TWT			= 43,
     BRCM_TPUT_DUMP_EVENT			= 44,
-    NAN_EVENT_MATCH_EXPIRY			= 45
+    NAN_EVENT_MATCH_EXPIRY			= 45,
+    NAN_EVENT_SUSPENSION_STATUS                 = 49
 } WIFI_EVENT;
 
 typedef void (*wifi_internal_event_handler) (wifi_handle handle, int events);
@@ -460,8 +472,7 @@ wifi_interface_handle wifi_get_wlan_interface(wifi_handle info,
 #ifdef RING_DUMP
 wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
             wifi_ring_buffer_data_handler ring_handle);
-wifi_error wifi_stop_ring_dump(wifi_interface_handle iface,
-            wifi_ring_buffer_data_handler ring_handle);
+wifi_error wifi_stop_ring_dump(wifi_interface_handle iface);
 #endif /* RING_DUMP */
 wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version);
 wifi_error wifi_hal_preInit(wifi_interface_handle iface);

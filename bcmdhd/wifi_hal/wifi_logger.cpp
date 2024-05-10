@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,6 @@
 #include <netlink/object-api.h>
 #include <netlink/netlink.h>
 #include <netlink/socket.h>
-#include <netlink-private/object-api.h>
-#include <netlink-private/types.h>
 #include <unistd.h>
 #include <cutils/properties.h>
 
@@ -81,13 +79,15 @@ typedef enum {
 #define MAX_SKU_NAME_LEN 5
 #define OTA_PATH "/data/vendor/firmware/wifi/"
 #define OTA_CLM_FILE "bcmdhd_clm.blob"
+#define OTA_TXCAP_BLOB_FILE "bcmdhd_txcap.blob"
 #define OTA_NVRAM_FILE "bcmdhd.cal"
 #define HW_DEV_PROP "ro.revision"
 #define HW_SKU_PROP "ro.boot.hardware.sku"
 
 typedef enum {
     NVRAM,
-    CLM_BLOB
+    CLM_BLOB,
+    TXCAP_BLOB
 } OTA_TYPE;
 
 char ota_nvram_ext[10];
@@ -96,6 +96,8 @@ typedef struct ota_info_buf {
     const void *ota_clm_buf[1];
     u32 ota_nvram_len;
     const void *ota_nvram_buf[1];
+    u32 ota_txcap_len;
+    const void *ota_txcap_buf[1];
 } ota_info_buf_t;
 u32 applied_ota_version = 0;
 
@@ -189,6 +191,8 @@ typedef enum {
     OTA_DOWNLOAD_NVRAM_ATTR         = 0x0004,
     OTA_SET_FORCE_REG_ON            = 0x0005,
     OTA_CUR_NVRAM_EXT_ATTR          = 0x0006,
+    OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR    = 0x0007,
+    OTA_DOWNLOAD_TXCAP_BLOB_ATTR           = 0x0008,
 } OTA_DOWNLOAD_ATTRIBUTE;
 
 #define HAL_START_REQUEST_ID 2
@@ -518,6 +522,7 @@ typedef struct {
 } sku_info_t;
 
 sku_info_t sku_table[] = {
+    // BCM4389
     { {"G9S9B"}, {"MMW"} },
     { {"G8V0U"}, {"MMW"} },
     { {"GFQM1"}, {"MMW"} },
@@ -536,7 +541,20 @@ sku_info_t sku_table[] = {
     { {"GB17L"}, {"JPN"} },
     { {"GFE4J"}, {"JPN"} },
     { {"G03Z5"}, {"JPN"} },
-    { {"G1AZG"}, {"EU"} }
+    // BCM4398
+    { {"GKWS6"}, {"MMW"} },
+    { {"G1MNW"}, {"MMW"} },
+    { {"GPJ41"}, {"ROW"} },
+    { {"GC3VE"}, {"ROW"} },
+    { {"GE9DP"}, {"JPN"} },
+    { {"GZPF0"}, {"JPN"} },
+    { {"G1AZG"}, {"EU"} },
+    { {"G9BQD"}, {"NA"} },
+    // BCM4383
+    { {"G8HHN"}, {"MMW"} },
+    { {"G6GPR"}, {"ROW"} },
+    { {"G576D"}, {"JPN"} },
+    { {"GKV4X"}, {"NA"} }
 };
 ///////////////////////////////////////////////////////////////////////////////
 class DebugCommand : public WifiCommand
@@ -1035,6 +1053,12 @@ wifi_error wifi_start_logging(wifi_interface_handle iface, u32 verbose_level,
     }
 }
 
+typedef struct {
+    u32 magic;
+    int num_entries;
+} __attribute__((packed)) wifi_ring_buffer_entry_pack;
+
+#define WIFI_RING_BUFFER_PACK_MAGIC 0xDBAADBAA
 
 ///////////////////////////////////////////////////////////////////////////////
 class SetLogHandler : public WifiCommand
@@ -1153,11 +1177,46 @@ public:
             if (mHandler.on_ring_buffer_data) {
                 /* Skip msg header. Retrieved log */
                 char *pBuff;
-                wifi_ring_buffer_entry *buffer_entry =
-                            (wifi_ring_buffer_entry *) buffer;
-                pBuff = (char *) (buffer_entry + 1);
-                (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff,
-                    buffer_entry->entry_size, &status);
+                int num_entries;
+                int cur_off = 0;
+                wifi_ring_buffer_entry_pack *pack_hdr =
+                    (wifi_ring_buffer_entry_pack *)buffer;
+                wifi_ring_buffer_entry *entry_hdr =
+                    (wifi_ring_buffer_entry *)(buffer + sizeof(*pack_hdr));
+                cur_off += sizeof(*pack_hdr);
+
+                if (pack_hdr->magic != WIFI_RING_BUFFER_PACK_MAGIC) {
+                    ALOGE("SetLogHandler: magic code is not matched "
+                        "magic:%u ring_name:%s\n", pack_hdr->magic, status.name);
+                    return NL_SKIP;
+                }
+
+                num_entries = pack_hdr->num_entries;
+
+                while (num_entries > 0) {
+                    /* Check for accesses that exceed the total buffer size */
+                    if (cur_off + sizeof(*entry_hdr) + entry_hdr->entry_size > buffer_size) {
+                        ALOGE("SetLogHandler: detected invalid access "
+                            "num_entries:%d cur_num:%d buffer_size:%d cur_off:%d "
+                            "hdrsize:%lu entry_size:%d ring_name:%s\n",
+                            pack_hdr->num_entries, num_entries, buffer_size, cur_off,
+                            sizeof(*entry_hdr), entry_hdr->entry_size, status.name);
+                        return NL_SKIP;
+                    }
+
+                    /* Copy buffer without hdr to the ringbuffer in LegacyHAL */
+                    pBuff = (char *)entry_hdr + sizeof(*entry_hdr);
+                    (*mHandler.on_ring_buffer_data)((char *)status.name, pBuff,
+                        entry_hdr->entry_size, &status);
+
+                    cur_off += sizeof(*entry_hdr) + entry_hdr->entry_size;
+
+                    /* jump to next entry_hdr */
+                    entry_hdr = (wifi_ring_buffer_entry *)((char *)entry_hdr + sizeof(*entry_hdr) + entry_hdr->entry_size);
+
+                    num_entries--;
+                }
+
             }
         } else {
             ALOGE("Unknown Event");
@@ -1198,6 +1257,10 @@ wifi_error wifi_reset_log_handler(wifi_request_id id, wifi_interface_handle ifac
     wifi_handle handle = getWifiHandle(iface);
     ALOGE("Loghandler reset, wifi_request_id = %d, handle = %p", id, handle);
 
+#ifdef RING_DUMP
+    wifi_stop_ring_dump(iface);
+#endif /* RING_DUMP */
+
     if (id == -1) {
         wifi_ring_buffer_data_handler handler;
         memset(&handler, 0, sizeof(handler));
@@ -1207,9 +1270,6 @@ wifi_error wifi_reset_log_handler(wifi_request_id id, wifi_interface_handle ifac
         cmd->cancel();
         cmd->releaseRef();
 
-#ifdef RING_DUMP
-        wifi_stop_ring_dump(iface, handler);
-#endif /* RING_DUMP */
         return WIFI_SUCCESS;
     }
 
@@ -1603,6 +1663,7 @@ public:
         : WifiCommand("RingDump", iface, id), mLargestBuffSize(0), mBuff(NULL),
         mErrCode(0)
     {
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
     }
 
     int start() {
@@ -1643,9 +1704,7 @@ public:
                 ring_name[i] = NULL;
             }
         }
-        if (mBuff) {
-            free(mBuff);
-        }
+        memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
 
         DUMP_INFO(("Stop Ring Dump Successfully Completed, mErrCode = %d\n", mErrCode));
         return WIFI_SUCCESS;
@@ -1984,8 +2043,7 @@ wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
     return result;
 }
 
-wifi_error wifi_stop_ring_dump(wifi_interface_handle iface,
-    wifi_ring_buffer_data_handler ring_handle)
+wifi_error wifi_stop_ring_dump(wifi_interface_handle iface)
 {
     RingDump *cmd = new RingDump(iface, FILE_DUMP_REQUEST_ID);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
@@ -2292,6 +2350,7 @@ public:
     int createMonitorPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_START_PKT_FATE_MONITORING);
         if (result < 0) {
+            ALOGE("Failed to create monitorPktFate result:%d\n", result);
             return result;
         }
 
@@ -2303,6 +2362,7 @@ public:
     int createTxPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_GET_TX_PKT_FATES);
         if (result < 0) {
+            ALOGE("Failed to create TxPktFate result:%d\n", result);
             return result;
         }
 
@@ -2310,10 +2370,12 @@ public:
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
         if (result < 0) {
+            ALOGE("Failed to set TxPktFate num result:%d mNoReqFates:%d\n", result, mNoReqFates);
             return result;
         }
         result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
         if (result < 0) {
+            ALOGE("Failed to set TxPktFate buf result:%d\n", result);
             return result;
         }
         request.attr_end(data);
@@ -2323,6 +2385,7 @@ public:
     int createRxPktFateRequest(WifiRequest& request) {
         int result = request.create(GOOGLE_OUI, LOGGER_GET_RX_PKT_FATES);
         if (result < 0) {
+            ALOGE("Failed to create RxPktFate result:%d\n", result);
             return result;
         }
 
@@ -2330,10 +2393,12 @@ public:
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
         result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
         if (result < 0) {
+            ALOGE("Failed to set RxPktFate num result:%d mNoReqFates:%d\n", result, mNoReqFates);
             return result;
         }
         result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
         if (result < 0) {
+            ALOGE("Failed to set RxPktFate buf result:%d\n", result);
             return result;
         }
         request.attr_end(data);
@@ -2662,11 +2727,24 @@ class OtaUpdateCommand : public WifiCommand
             return result;
         }
 
+        result = request.put_u32(OTA_DOWNLOAD_TXCAP_BLOB_LENGTH_ATTR, buf->ota_txcap_len);
+        if (result != WIFI_SUCCESS) {
+            ALOGE("otaDownload Failed to put data= %d", result);
+            return result;
+        }
+
+        result = request.put(OTA_DOWNLOAD_TXCAP_BLOB_ATTR,
+            buf->ota_txcap_buf, sizeof(*buf->ota_txcap_buf));
+        if (result != WIFI_SUCCESS) {
+            ALOGE("otaDownload Failed to put data= %d", result);
+            return result;
+        }
+
         request.attr_end(data);
 
         result = requestResponse(request);
         if (result != WIFI_SUCCESS) {
-            ALOGE("Failed to register set otaDownload; result = %d", result);
+            ALOGE("Failed to register set otaDownload; result = %d\n", result);
         }
 
         return result;
@@ -2756,6 +2834,10 @@ wifi_error check_multiple_nvram_clm(uint32_t type, char* hw_revision, char* hw_s
     else if (type == NVRAM) {
         sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_NVRAM_FILE);
     }
+    else if (type == TXCAP_BLOB) {
+        sprintf(nvram_clmblob_default_file, "%s%s", OTA_PATH, OTA_TXCAP_BLOB_FILE);
+    }
+
     for (unsigned int i = 0; i < MAX_NV_FILE; i++) {
         memset(file_name[i], 0, FILE_NAME_LEN);
     }
@@ -2782,6 +2864,7 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     ota_info_buf_t buf;
     char *buffer_nvram = NULL;
     char *buffer_clm = NULL;
+    char *buffer_txcap_blob = NULL;
     char prop_revision_buf[PROPERTY_VALUE_MAX] = {0,};
     char prop_sku_buf[PROPERTY_VALUE_MAX] = {0,};
     char sku_name[MAX_SKU_NAME_LEN] = {0,};
@@ -2816,6 +2899,14 @@ wifi_error wifi_hal_ota_update(wifi_interface_handle iface, uint32_t ota_version
     }
     buf.ota_clm_buf[0] = buffer_clm;
 
+    check_multiple_nvram_clm(TXCAP_BLOB, prop_revision_buf, sku_name,
+        &buffer_txcap_blob, &buf.ota_txcap_len);
+    if (buffer_txcap_blob == NULL) {
+        ALOGE("buffer_txcap_blob is null");
+        goto exit;
+    }
+    buf.ota_txcap_buf[0] = buffer_txcap_blob;
+
     check_multiple_nvram_clm(NVRAM, prop_revision_buf, sku_name,
             &buffer_nvram, &buf.ota_nvram_len);
     if (buffer_nvram == NULL) {
@@ -2831,6 +2922,9 @@ exit:
     }
     if (buffer_nvram != NULL) {
         free(buffer_nvram);
+    }
+    if (buffer_txcap_blob != NULL) {
+        free(buffer_txcap_blob);
     }
 
     cmd->releaseRef();
