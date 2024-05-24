@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2024 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,6 +73,7 @@ class TwtHandle
 
 };
 
+
 static const char *TwtCmdToString(int cmd)
 {
     switch (cmd) {
@@ -80,7 +81,7 @@ static const char *TwtCmdToString(int cmd)
         C2S(TWT_INFO_FRAME_REQUEST);
         C2S(TWT_TEAR_DOWN_REQUEST);
         default:
-        return "UNKNOWN_NAN_CMD";
+    return "UNKNOWN_NAN_CMD";
     }
 }
 
@@ -162,7 +163,7 @@ void EventGetAttributeData(u8 sub_event_type, nlattr *vendor_data)
                         ALOGI("status = %u\n", teardown_event.status);
                         break;
                     case TWT_ATTRIBUTE_ALL_TWT:
-                        teardown_event.all_twt = it.get_u32();
+                        teardown_event.all_twt = it.get_u8();
                         ALOGI("all_twt = %d\n", teardown_event.all_twt);
                         break;
                     case TWT_ATTRIBUTE_REASON_CODE:
@@ -196,7 +197,7 @@ void EventGetAttributeData(u8 sub_event_type, nlattr *vendor_data)
                         ALOGI("status = %u\n", info_frame_event.status);
                         break;
                     case TWT_ATTRIBUTE_ALL_TWT:
-                        info_frame_event.all_twt = it.get_u32();
+                        info_frame_event.all_twt = it.get_u8();
                         ALOGI("all_twt = %d\n", info_frame_event.all_twt);
                         break;
                     case TWT_ATTRIBUTE_RESUMED:
@@ -361,12 +362,12 @@ protected:
 
         int id = reply.get_vendor_id();
         int subcmd = reply.get_vendor_subcmd();
-        uint32_t twt_device_cap = 0, twt_peer_cap = 0, twt_num_stats = 0;
+        uint32_t twt_device_cap, twt_peer_cap;
 
         nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (data == NULL || len == 0) {
             ALOGE("no vendor data in GetTwtCapabilitiesCommand response; ignoring it\n");
             return NL_SKIP;
@@ -376,17 +377,11 @@ protected:
             switch (it.get_type()) {
                 case TWT_ATTRIBUTE_DEVICE_CAP:
                     twt_device_cap = it.get_u32();
-                    ALOGI("TWT device cap %04x\n", twt_device_cap);
                     mCapabilities->device_capability = parseTwtCap(twt_device_cap);
                     break;
                 case TWT_ATTRIBUTE_PEER_CAP:
                     twt_peer_cap = it.get_u32();
-                    ALOGI("TWT peer cap %04x\n", twt_peer_cap);
                     mCapabilities->peer_capability = parseTwtCap(twt_peer_cap);
-                    break;
-                case TWT_ATTRIBUTE_NUM_PEER_STATS:
-                    twt_num_stats = it.get_u32();
-                    ALOGI("TWT num stats %04x\n", twt_num_stats);
                     break;
                 default:
                     ALOGE("Ignoring invalid attribute type = %d, size = %d\n",
@@ -430,7 +425,6 @@ public:
         : WifiCommand("GetTwtStatsCommand", iface, 0), mConfig_id(config_id), mStats(stats)
     {
         memset(mStats, 0, sizeof(*mStats));
-        mConfig_id = 0;
     }
 
     virtual int create() {
@@ -469,7 +463,7 @@ protected:
         nlattr *data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len);
+        ALOGD("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
         if (data == NULL || len == 0) {
             ALOGE("no vendor data in GetTwtStatsCommand response; ignoring it\n");
             return NL_SKIP;
@@ -539,7 +533,6 @@ public:
     ClearTwtStatsCommand(wifi_interface_handle iface, u8 config_id)
         : WifiCommand("ClearTwtStatsCommand", iface, 0), mConfig_id(config_id)
     {
-        mConfig_id = 0;
     }
 
     virtual int create() {
@@ -595,10 +588,6 @@ class TwtFeatureRequest : public WifiCommand
             TwtRequest params, TwtRequestType cmdType)
         : WifiCommand("TwtFeatureRequest", iface, 0), reqContext(params), mType(cmdType)
     {
-    }
-
-    void setType(TwtRequestType type ) {
-        mType = type;
     }
 
     int createRequest(WifiRequest& request)

@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2023 The Android Open Source Project
  *
- * Portions copyright (C) 2024 Broadcom Limited
+ * Portions copyright (C) 2022 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,7 @@
 
 #define LOG_TAG  "WifiHAL"
 
-#define NAN_MAX_SIDS_IN_BEACONS 127u
-#define MAX_WIFI_USABLE_CHANNELS 256u
+#define NAN_MAX_SIDS_IN_BEACONS 127
 #include <utils/Log.h>
 #ifndef ANDROID
 #include <cutils/memory.h>
@@ -49,9 +48,11 @@
 #endif
 #include <sys/ioctl.h>
 #include <linux/netlink.h>
-#include <hardware_legacy/wifi_hal.h>
-#include <hardware_legacy/wifi_nan.h>
-#include <hardware_legacy/wifi_twt.h>
+#include "wifi_hal.h"
+#include "wifi_nan.h"
+#include "wifi_twt.h"
+#include "hal_tool.h"
+#include "interface_tool.h"
 
 #include "common.h"
 
@@ -63,8 +64,6 @@
 #define NMRSTR "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
 #define NAN_DISC_MAC_RAND_INTVL 30
 pthread_mutex_t printMutex;
-static u8 enab_for_chre = 0;
-static u8 disab_for_chre = 0;
 
 static wifi_hal_fn hal_fn;
 static char* frequency_to_channel(int center_freq);
@@ -77,7 +76,6 @@ wifi_error  nan_event_check_request(transaction_id id,
 wifi_error twt_event_check_request(transaction_id id,
         wifi_interface_handle handle);
 static int set_interface_params(char *p_info, char *val_p, int len);
-static wifi_interface_handle wifi_get_iface_handle_by_iface_name(char *val_p);
 static void printApfUsage();
 static void printTxPowerUsage();
 
@@ -90,46 +88,6 @@ void printMsg(const char *fmt, ...)
     vprintf(fmt, l);
     va_end(l);
     pthread_mutex_unlock(&printMutex);
-}
-
-/* pretty hex print a contiguous buffer */
-static void prhex_msg(const char *msg, u8 *buf, u32 nbytes)
-{
-    char line[128];
-    char *p;
-    int len = sizeof(line);
-    int nchar;
-    u32 i;
-
-    if (msg && (msg[0] != '\0')) {
-        printf("%s: len %d\n", msg, nbytes);
-    }
-
-    p = line;
-    for (i = 0; i < nbytes; i++) {
-        if (i % 16 == 0) {
-            nchar = snprintf(p, len, "  %04d: ", i);    /* line prefix */
-            p += nchar;
-            len -= nchar;
-        }
-
-        if (len > 0) {
-            nchar = snprintf(p, len, "%02x ", buf[i]);
-            p += nchar;
-            len -= nchar;
-        }
-
-        if (i % 16 == 15) {
-            printf("%s\n", line);       /* flush line */
-            p = line;
-            len = sizeof(line);
-        }
-    }
-
-    /* flush last partial line */
-    if (p != line) {
-        printf("%s\n", line);
-    }
 }
 
 template<typename T, unsigned N>
@@ -316,8 +274,7 @@ static wifi_interface_handle *ifaceHandles;
 static wifi_interface_handle wlan0Handle;
 static wifi_interface_handle p2p0Handle;
 static int numIfaceHandles;
-static int cmdId = 1; /* Start with TxId of 1 */
-static int ioctl_sock = 0;
+static int cmdId = 0;
 static int max_event_wait = 5;
 static int stest_max_ap = 10;
 static int stest_base_period = 5000;
@@ -531,65 +488,16 @@ static const char *AntennCfgToString(wifi_antenna_configuration cmd) {
 /* 18-bytes of Ethernet address buffer length */
 #define ETHER_ADDR_STR_LEN      18
 #define ETHER_ADDR_LEN          6
-static const char *RttTypeToString(wifi_rtt_type type)
-{
-    switch (type) {
-        C2S(RTT_TYPE_1_SIDED)
-        C2S(RTT_TYPE_2_SIDED)
-        /* C2S(RTT_TYPE_2_SIDED_11MC) is same as above */
-        C2S(RTT_TYPE_2_SIDED_11AZ_NTB)
-        default:
-            return "UNKNOWN TYPE";
-    }
-}
-
-wifi_rtt_bw convert_channel_width_to_rtt_bw(int channel_width)
-{
-    wifi_rtt_bw rtt_bw = WIFI_RTT_BW_5;
-
-    switch (channel_width) {
-        case WIFI_CHAN_WIDTH_20:
-            rtt_bw = WIFI_RTT_BW_20;
-            break;
-        case WIFI_CHAN_WIDTH_40:
-            rtt_bw = WIFI_RTT_BW_40;
-            break;
-        case WIFI_CHAN_WIDTH_80:
-            rtt_bw = WIFI_RTT_BW_80;
-            break;
-        case WIFI_CHAN_WIDTH_160:
-            rtt_bw = WIFI_RTT_BW_160;
-            break;
-        case WIFI_CHAN_WIDTH_5:
-            rtt_bw = WIFI_RTT_BW_5;
-            break;
-        case WIFI_CHAN_WIDTH_10:
-            rtt_bw = WIFI_RTT_BW_10;
-            break;
-        case WIFI_CHAN_WIDTH_80P80:
-            rtt_bw = WIFI_RTT_BW_5;
-            break;
-        default:
-	    ALOGE("Unsupported channel_width: %d\n", channel_width);
-            break;
-    }
-    ALOGI("rtt_bw: %x, channel_width: %d\n", rtt_bw, channel_width);
-    return rtt_bw;
-}
 
 #define DEFAULT_RTT_FILE "/data/rtt-ap.list"
 static int rtt_from_file = 0;
 static int rtt_to_file = 0;
 static wifi_band band = WIFI_BAND_UNSPECIFIED;
-static wifi_interface_handle ifHandle = NULL;
 static int max_ap = 256; // the maximum count of  ap for RTT test
 static char rtt_aplist[FILE_NAME_LEN] = DEFAULT_RTT_FILE;
 static mac_addr responder_addr;
 static wifi_channel responder_channel;
 static int channel_width = 0;
-static wifi_rtt_type type = RTT_TYPE_2_SIDED;
-static u64 ntb_min_meas_time = 0;
-static u64 ntb_max_meas_time = 0;
 static bool rtt_sta = false;
 static bool rtt_nan = false;
 static bool is_6g = false;
@@ -606,15 +514,7 @@ struct rtt_params {
     u8 bw;
     wifi_rtt_type type;
 };
-
-struct rtt_params_v3 {
-    u64 ntb_min_measurement_time;
-    u64 ntb_max_measurement_time;
-    u32 num_frames_per_burst;
-};
-
 struct rtt_params default_rtt_param = {0, 0, 0, 0, 0, 15, 0, 0, 0, 0, RTT_TYPE_2_SIDED};
-struct rtt_params_v3 default_rtt_param_v3 = {5000, 500, 5};
 
 mac_addr hotlist_bssids[16];
 mac_addr blacklist_bssids[16];
@@ -695,27 +595,19 @@ int linux_set_iface_flags(int sock, const char *ifname, int dev_up)
 
 
 static int init() {
-
-    wifi_error res = init_wifi_vendor_hal_func_table(&hal_fn);
-    if (res != WIFI_SUCCESS) {
-        ALOGD("Can not initialize the vendor function pointer table");
+    android::wifi_system::HalTool hal_tool;
+    if (!hal_tool.InitFunctionTable(&hal_fn)) {
+        printMsg("Could not initialize the function table!\n");
         return -1;
     }
 
-    ioctl_sock = socket(PF_INET, SOCK_DGRAM, 0);
-    if (ioctl_sock < 0) {
-        printMsg("Bad socket: %d\n", ioctl_sock);
-        return errno;
-    } else {
-        ALOGD("Good socket: %d\n", ioctl_sock);
+    android::wifi_system::InterfaceTool if_tool;
+    if (!if_tool.SetWifiUpState(true)) {
+        printMsg("Failed to set the interface state to up.\n");
+        return -1;
     }
 
-    int ret = linux_set_iface_flags(ioctl_sock, "wlan0", 1);
-    if (ret < 0) {
-        return ret;
-    }
-
-    res = hal_fn.wifi_initialize(&halHandle);
+    wifi_error res = hal_fn.wifi_initialize(&halHandle);
     if (res < 0) {
         return res;
     }
@@ -888,10 +780,6 @@ typedef enum {
     EVENT_TYPE_NAN_TRANSMIT_FOLLOWUP_INDICATION   = 1022,
     EVENT_TYPE_RTT_RESULTS_DETAIL                 = 1023,
     EVENT_TYPE_CHRE_NAN_RTT_STATE_UPDATED         = 1024,
-    EVENT_TYPE_NAN_PAIRING_REQUEST_INDICATION     = 1025,
-    EVENT_TYPE_NAN_PAIRING_CONFIRMATION           = 1026,
-    EVENT_TYPE_NAN_BOOTSTRAP_REQUEST_INDICATION   = 1027,
-    EVENT_TYPE_NAN_BOOTSTRAP_CONFIRMATION         = 1028,
 
 } EventType;
 
@@ -1235,75 +1123,33 @@ static int removeDuplicateScanResults(wifi_scan_result **results, int num) {
     return num_results;
 }
 
-static void onRTTResultsV3(wifi_request_id id, unsigned num_results,
-    wifi_rtt_result_v3 *result[]) {
+static void onRTTResults (wifi_request_id id, unsigned num_results, wifi_rtt_result *result[]) {
 
-    printMsg("RTT results: num_results %d\n", num_results);
-    wifi_rtt_result_v3 *rtt_result_v3;
+    printMsg("RTT results\n");
+    wifi_rtt_result *rtt_result;
     mac_addr addr = {0};
-
     for (unsigned i = 0; i < num_results; i++) {
-        rtt_result_v3 = result[i];
-        if (memcmp(addr, rtt_result_v3->rtt_result.rtt_result.addr, sizeof(mac_addr))) {
+        rtt_result = result[i];
+        if (memcmp(addr, rtt_result->addr, sizeof(mac_addr))) {
             printMsg("Target mac : %02x:%02x:%02x:%02x:%02x:%02x\n",
-                    rtt_result_v3->rtt_result.rtt_result.addr[0],
-                    rtt_result_v3->rtt_result.rtt_result.addr[1],
-                    rtt_result_v3->rtt_result.rtt_result.addr[2],
-                    rtt_result_v3->rtt_result.rtt_result.addr[3],
-                    rtt_result_v3->rtt_result.rtt_result.addr[4],
-                    rtt_result_v3->rtt_result.rtt_result.addr[5]);
-            memcpy(addr, rtt_result_v3->rtt_result.rtt_result.addr, sizeof(mac_addr));
+                    rtt_result->addr[0],
+                    rtt_result->addr[1],
+                    rtt_result->addr[2],
+                    rtt_result->addr[3],
+                    rtt_result->addr[4],
+                    rtt_result->addr[5]);
+            memcpy(addr, rtt_result->addr, sizeof(mac_addr));
         }
-
-        printMsg("\tburst_num : %d, measurement_number : %d,\n"
-                "\tsuccess_number : %d, number_per_burst_peer : %d,\n"
-                "\tstatus : %d, retry_after_duration : %ds,\n"
-                "\ttype : %d, rssi : %d dbm, rx_rate : %d Kbps, rtt : %lu ps,\n"
-                "\trtt_sd : %lu ps, distance : %d mm, burst_duration : %d ms,\n"
-                "\tnegotiated_burst_num : %d, frequency : %d, packet_bw : %d\n",
-                rtt_result_v3->rtt_result.rtt_result.burst_num,
-                rtt_result_v3->rtt_result.rtt_result.measurement_number,
-                rtt_result_v3->rtt_result.rtt_result.success_number,
-                rtt_result_v3->rtt_result.rtt_result.number_per_burst_peer,
-                rtt_result_v3->rtt_result.rtt_result.status,
-                rtt_result_v3->rtt_result.rtt_result.retry_after_duration,
-                rtt_result_v3->rtt_result.rtt_result.type,
-                rtt_result_v3->rtt_result.rtt_result.rssi,
-                rtt_result_v3->rtt_result.rtt_result.rx_rate.bitrate * 100,
-                (unsigned long)rtt_result_v3->rtt_result.rtt_result.rtt,
-                (unsigned long)rtt_result_v3->rtt_result.rtt_result.rtt_sd,
-                rtt_result_v3->rtt_result.rtt_result.distance_mm,
-                rtt_result_v3->rtt_result.rtt_result.burst_duration,
-                rtt_result_v3->rtt_result.rtt_result.negotiated_burst_num,
-                rtt_result_v3->rtt_result.frequency,
-                rtt_result_v3->rtt_result.packet_bw);
-
-        if (rtt_result_v3->rtt_result.rtt_result.LCI) {
-            printMsg("LCI id %d\n", rtt_result_v3->rtt_result.rtt_result.LCI->id);
-            printMsg("LCI Len %d\n", rtt_result_v3->rtt_result.rtt_result.LCI->len);
-            prhex_msg("LCI data",
-                    rtt_result_v3->rtt_result.rtt_result.LCI->data,
-                    rtt_result_v3->rtt_result.rtt_result.LCI->len);
-        }
-
-        if (rtt_result_v3->rtt_result.rtt_result.LCR) {
-            printMsg("LCR id %d\n", rtt_result_v3->rtt_result.rtt_result.LCR->id);
-            printMsg("LCR Len %d\n", rtt_result_v3->rtt_result.rtt_result.LCR->len);
-            prhex_msg("LCR data",
-                    rtt_result_v3->rtt_result.rtt_result.LCR->data,
-                    rtt_result_v3->rtt_result.rtt_result.LCR->len);
-        }
-
-        if (rtt_result_v3->rtt_result.rtt_result.type == RTT_TYPE_2_SIDED_11AZ_NTB) {
-            printMsg("\t i2r_tx_ltf_repetition_cnt: %u,\n"
-                    " \t r2i_tx_ltf_repetition_cnt: %u,\n"
-                    " \t ntb min meas_time: %lu units of 100us,\n"
-                    " \t ntb max meas_time: %lu units of 10ms\n",
-                    rtt_result_v3->i2r_tx_ltf_repetition_count,
-                    rtt_result_v3->r2i_tx_ltf_repetition_count,
-                    rtt_result_v3->ntb_min_measurement_time,
-                    rtt_result_v3->ntb_max_measurement_time);
-        }
+        printMsg("\tburst_num : %d, measurement_number : %d, success_number : %d\n"
+                "\tnumber_per_burst_peer : %d, status : %d, retry_after_duration : %d s\n"
+                "\trssi : %d dbm, rx_rate : %d Kbps, rtt : %llu ns, rtt_sd : %llu\n"
+                "\tdistance : %d cm, burst_duration : %d ms, negotiated_burst_num : %d\n",
+                rtt_result->burst_num, rtt_result->measurement_number,
+                rtt_result->success_number, rtt_result->number_per_burst_peer,
+                rtt_result->status, rtt_result->retry_after_duration,
+                rtt_result->rssi, rtt_result->rx_rate.bitrate * 100,
+                rtt_result->rtt/1000, rtt_result->rtt_sd, rtt_result->distance_mm / 10,
+                rtt_result->burst_duration, rtt_result->negotiated_burst_num);
     }
 
     putEventInCache(EVENT_TYPE_RTT_RESULTS, "RTT results");
@@ -1348,6 +1194,7 @@ static void onRssiThresholdbreached(wifi_request_id id, u8 *cur_bssid, s8 cur_rs
     putEventInCache(EVENT_TYPE_RSSI_MONITOR, "RSSI monitor Event");
 }
 
+
 static const u8 *bss_get_ie(u8 id, const char* ie, const s32 ie_len)
 {
     const u8 *end, *pos;
@@ -1365,7 +1212,6 @@ static const u8 *bss_get_ie(u8 id, const char* ie, const s32 ie_len)
 
     return NULL;
 }
-
 static bool is11mcAP(const char* ie, const s32 ie_len)
 {
     const u8 *ext_cap_ie, *ptr_ie;
@@ -1499,7 +1345,7 @@ wifi_channel_info get_channel_of_ie(const char* ie, const s32 ie_len)
     memset(&chan_info, 0, sizeof(wifi_channel_info));
     vht_op = read_vht_oper_ie(ie, ie_len);
     if ((vht_op = read_vht_oper_ie(ie, ie_len)) &&
-            ((ht_op = (read_ht_oper_ie(ie, ie_len))))) {
+            (ht_op = read_ht_oper_ie(ie, ie_len))) {
         /* VHT mode */
         if (vht_op->chan_width == VHT_OP_CHAN_WIDTH_80) {
             chan_info.width = WIFI_CHAN_WIDTH_80;
@@ -1510,7 +1356,7 @@ wifi_channel_info get_channel_of_ie(const char* ie, const s32 ie_len)
             return chan_info;
         }
     }
-    if ((ht_op = (read_ht_oper_ie(ie, ie_len)))) {
+    if (ht_op = read_ht_oper_ie(ie, ie_len)){
         /* HT mode */
         /* control channel */
         chan_info.center_freq = channel2mhz(ht_op->ctl_ch);
@@ -1546,8 +1392,7 @@ static void testRTT()
     int result = 0;
     /* Run by a provided rtt-ap-list file */
     FILE* w_fp = NULL;
-    wifi_rtt_config_v3 params[max_ap];
-
+    wifi_rtt_config params[max_ap];
     if (!rtt_from_file && !rtt_sta && !rtt_nan) {
         /* band filter for a specific band */
         if (band == WIFI_BAND_UNSPECIFIED)
@@ -1567,7 +1412,6 @@ static void testRTT()
         for (int i = 0; i < num_results; i++) {
             printScanResult(*results[i]);
         }
-
         if (rtt_to_file) {
             /* Write a RTT AP list to a file */
             w_fp = fopen(rtt_aplist, "w");
@@ -1575,93 +1419,43 @@ static void testRTT()
                 printMsg("failed to open the file : %s\n", rtt_aplist);
                 return;
             }
-            fprintf(w_fp, "|SSID|BSSID|Primary Freq|Center Freq|Channel BW(0=20MHZ,1=40MZ,2=80MHZ)\n"
-                    "|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|\n"
-                    "Num of Burst|FTM retry count|FTMR retry count|LCI|LCR|\n"
-                    "Burst Duration|Preamble|BW||NTB Min Meas Time in units of 100us|\n"
-                    "NTB Max Meas Time in units of 10ms\n");
+            fprintf(w_fp, "|SSID|BSSID|Primary Freq|Center Freq|Channel BW(0=20MHZ,1=40MZ,2=80MHZ)"
+                    "|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|"
+                    "Num of Burst|FTM retry count|FTMR retry count|LCI|LCR|Burst Duration|Preamble|BW\n");
         }
-
         for (int i = 0; i < min(num_results, max_ap); i++) {
             scan_param = results[i];
             if(is11mcAP(&scan_param->ie_data[0], scan_param->ie_length)) {
-                memcpy(params[num_ap].rtt_config.addr, scan_param->bssid,
-                        sizeof(mac_addr));
-                mac_addr &addr = params[num_ap].rtt_config.addr;
-                printMsg("Adding %s(%02x:%02x:%02x:%02x:%02x:%02x) on Freq (%d) for %s type RTT\n",
+                memcpy(params[num_ap].addr, scan_param->bssid, sizeof(mac_addr));
+                mac_addr &addr = params[num_ap].addr;
+                printMsg("Adding %s(%02x:%02x:%02x:%02x:%02x:%02x) on Freq (%d) for 11mc RTT\n",
                         scan_param->ssid, addr[0], addr[1],
                         addr[2], addr[3], addr[4], addr[5],
-                        scan_param->channel, RttTypeToString(type));
-                params[num_ap].rtt_config.type = type;
-                params[num_ap].rtt_config.channel = get_channel_of_ie(&scan_param->ie_data[0],
+                        scan_param->channel);
+                params[num_ap].type = default_rtt_param.type;
+                params[num_ap].channel = get_channel_of_ie(&scan_param->ie_data[0],
                         scan_param->ie_length);
-                params[num_ap].rtt_config.peer = RTT_PEER_AP;
-                params[num_ap].rtt_config.num_burst = default_rtt_param.num_burst;
-                params[num_ap].rtt_config.num_frames_per_burst =
-                        default_rtt_param.num_frames_per_burst;
-                params[num_ap].rtt_config.num_retries_per_rtt_frame =
-                        default_rtt_param.num_retries_per_ftm;
-                params[num_ap].rtt_config.num_retries_per_ftmr =
-                        default_rtt_param.num_retries_per_ftmr;
-                params[num_ap].rtt_config.burst_period = default_rtt_param.burst_period;
-                params[num_ap].rtt_config.burst_duration = default_rtt_param.burst_duration;
-                params[num_ap].rtt_config.LCI_request = default_rtt_param.LCI_request;
-                params[num_ap].rtt_config.LCR_request = default_rtt_param.LCR_request;
-                params[num_ap].rtt_config.preamble = (wifi_rtt_preamble)default_rtt_param.preamble;
-                params[num_ap].rtt_config.bw = convert_channel_width_to_rtt_bw(channel_width);
-                if (params[num_ap].rtt_config.bw == WIFI_RTT_BW_5) {
-                    printf("Unsupported rtt bw %x \n",
-                            params[num_ap].rtt_config.bw);
-                    return;
-                }
-                if (params[num_ap].rtt_config.type == RTT_TYPE_2_SIDED_11AZ_NTB) {
-                    params[num_ap].rtt_config.num_frames_per_burst =
-                            default_rtt_param_v3.num_frames_per_burst;
-                    printf("num_frames_per_burst %d \n",
-                            params[num_ap].rtt_config.num_frames_per_burst);
-                    if (!ntb_min_meas_time) {
-                        params[num_ap].ntb_min_measurement_time =
-                                default_rtt_param_v3.ntb_min_measurement_time;
-                    } else {
-                        params[num_ap].ntb_min_measurement_time =
-                                ntb_min_meas_time;
-                    }
-                    if (!ntb_max_meas_time) {
-                         params[num_ap].ntb_max_measurement_time =
-                                default_rtt_param_v3.ntb_max_measurement_time;
-                    } else {
-                        params[num_ap].ntb_max_measurement_time =
-                                ntb_max_meas_time;
-                    }
-                }
+                params[num_ap].peer = RTT_PEER_AP;
+                params[num_ap].num_burst = default_rtt_param.num_burst;
+                params[num_ap].num_frames_per_burst = default_rtt_param.num_frames_per_burst;
+                params[num_ap].num_retries_per_rtt_frame =
+                    default_rtt_param.num_retries_per_ftm;
+                params[num_ap].num_retries_per_ftmr = default_rtt_param.num_retries_per_ftmr;
+                params[num_ap].burst_period = default_rtt_param.burst_period;
+                params[num_ap].burst_duration = default_rtt_param.burst_duration;
+                params[num_ap].LCI_request = default_rtt_param.LCI_request;
+                params[num_ap].LCR_request = default_rtt_param.LCR_request;
+                params[num_ap].preamble = (wifi_rtt_preamble)default_rtt_param.preamble;
+                params[num_ap].bw = (wifi_rtt_bw)default_rtt_param.bw;
                 if (rtt_to_file) {
-                    fprintf(w_fp, "%s %02x:%02x:%02x:%02x:%02x:%02x"
-                            " %d %d %d %d %d %d %d %d %d "
-                            "%d %d %d %d %d %d %lu %lu\n",
-                            scan_param->ssid,
-                            params[num_ap].rtt_config.addr[0],
-                            params[num_ap].rtt_config.addr[1],
-                            params[num_ap].rtt_config.addr[2],
-                            params[num_ap].rtt_config.addr[3],
-                            params[num_ap].rtt_config.addr[4],
-                            params[num_ap].rtt_config.addr[5],
-                            params[num_ap].rtt_config.channel.center_freq,
-                            params[num_ap].rtt_config.channel.center_freq0,
-                            params[num_ap].rtt_config.channel.width,
-                            params[num_ap].rtt_config.type,
-                            params[num_ap].rtt_config.peer,
-                            params[num_ap].rtt_config.burst_period,
-                            params[num_ap].rtt_config.num_burst,
-                            params[num_ap].rtt_config.num_frames_per_burst,
-                            params[num_ap].rtt_config.num_retries_per_rtt_frame,
-                            params[num_ap].rtt_config.num_retries_per_ftmr,
-                            params[num_ap].rtt_config.LCI_request,
-                            params[num_ap].rtt_config.LCR_request,
-                            params[num_ap].rtt_config.burst_duration,
-                            params[num_ap].rtt_config.preamble,
-                            params[num_ap].rtt_config.bw,
-                            params[num_ap].ntb_min_measurement_time,
-                            params[num_ap].ntb_max_measurement_time);
+                    fprintf(w_fp, "%s %02x:%02x:%02x:%02x:%02x:%02x %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n", scan_param->ssid,
+                            params[num_ap].addr[0], params[num_ap].addr[1], params[num_ap].addr[2], params[num_ap].addr[3],
+                            params[num_ap].addr[4], params[num_ap].addr[5],params[num_ap].channel.center_freq,
+                            params[num_ap].channel.center_freq0, params[num_ap].channel.width, params[num_ap].type,params[num_ap].peer,
+                            params[num_ap].burst_period, params[num_ap].num_burst, params[num_ap].num_frames_per_burst,
+                            params[num_ap].num_retries_per_rtt_frame, params[num_ap].num_retries_per_ftmr,
+                            params[num_ap].LCI_request, params[num_ap].LCR_request, params[num_ap].burst_duration,
+                            params[num_ap].preamble, params[num_ap].bw);
                 }
                 num_ap++;
             } else {
@@ -1677,64 +1471,36 @@ static void testRTT()
             fclose(w_fp);
     } else if (rtt_sta || rtt_nan) {
         printf(" Run initiator rtt sta/nan, rtt_sta = %d, rtt_nan = %d \n",
-                rtt_sta, rtt_nan);
+            rtt_sta, rtt_nan);
         /* As we have only one target */
-        memcpy(params[num_sta].rtt_config.addr, responder_addr, sizeof(mac_addr));
-        params[num_sta].rtt_config.channel =
-                convert_channel(responder_channel, channel_width, is_6g);
-        printMsg("Adding(" MACSTR ") on Freq (%d) for %s RTT\n",
-                MAC2STR(responder_addr),
-                params[num_sta].rtt_config.channel.center_freq,
-                RttTypeToString(type));
+        memcpy(params[num_sta].addr, responder_addr, sizeof(mac_addr));
+        params[num_sta].channel = convert_channel(responder_channel, channel_width, is_6g);
+        printMsg("Adding(" MACSTR ") on Freq (%d),(%d) for 11mc RTT\n",
+                 MAC2STR(responder_addr),
+                 params[num_sta].channel.center_freq,
+                 params[num_sta].channel.center_freq0);
         /*As we are doing STA-STA RTT */
-        params[num_sta].rtt_config.type = type;
+        params[num_sta].type = default_rtt_param.type;
         if (rtt_nan) {
-            params[num_sta].rtt_config.peer = RTT_PEER_NAN;
+            params[num_sta].peer = RTT_PEER_NAN;
         } else if (rtt_sta) {
-            params[num_sta].rtt_config.peer = RTT_PEER_STA;
+            params[num_sta].peer = RTT_PEER_STA;
         }
-        params[num_sta].rtt_config.num_burst = default_rtt_param.num_burst;
-        params[num_sta].rtt_config.num_frames_per_burst = default_rtt_param.num_frames_per_burst;
-        params[num_sta].rtt_config.num_retries_per_rtt_frame =
+        params[num_sta].num_burst = default_rtt_param.num_burst;
+        params[num_sta].num_frames_per_burst = default_rtt_param.num_frames_per_burst;
+        params[num_sta].num_retries_per_rtt_frame =
             default_rtt_param.num_retries_per_ftm;
-        params[num_sta].rtt_config.num_retries_per_ftmr = default_rtt_param.num_retries_per_ftmr;
-        params[num_sta].rtt_config.burst_period = default_rtt_param.burst_period;
-        params[num_sta].rtt_config.burst_duration = default_rtt_param.burst_duration;
-        params[num_sta].rtt_config.LCI_request = default_rtt_param.LCI_request;
-        params[num_sta].rtt_config.LCR_request = default_rtt_param.LCR_request;
-        params[num_sta].rtt_config.preamble = (wifi_rtt_preamble)default_rtt_param.preamble;
-        params[num_sta].rtt_config.bw = convert_channel_width_to_rtt_bw(channel_width);
-        if (params[num_sta].rtt_config.bw == WIFI_RTT_BW_5) {
-            printf("Unsupported rtt bw %x \n",
-                    params[num_sta].rtt_config.bw);
-            return;
-        }
-
-        if (params[num_sta].rtt_config.type == RTT_TYPE_2_SIDED_11AZ_NTB) {
-            params[num_sta].rtt_config.num_frames_per_burst =
-                    default_rtt_param_v3.num_frames_per_burst;
-
-            printf("num_frames_per_burst %d \n",
-                    params[num_sta].rtt_config.num_frames_per_burst);
-            if (!ntb_min_meas_time) {
-                params[num_sta].ntb_min_measurement_time =
-                        default_rtt_param_v3.ntb_min_measurement_time;
-                } else {
-                    params[num_sta].ntb_min_measurement_time =
-                            ntb_min_meas_time;
-                }
-                if (!ntb_max_meas_time) {
-                    params[num_sta].ntb_max_measurement_time =
-                            default_rtt_param_v3.ntb_max_measurement_time;
-                } else {
-                    params[num_sta].ntb_max_measurement_time =
-                            ntb_max_meas_time;
-                }
-        }
-
+        params[num_sta].num_retries_per_ftmr = default_rtt_param.num_retries_per_ftmr;
+        params[num_sta].burst_period = default_rtt_param.burst_period;
+        params[num_sta].burst_duration = default_rtt_param.burst_duration;
+        params[num_sta].LCI_request = default_rtt_param.LCI_request;
+        params[num_sta].LCR_request = default_rtt_param.LCR_request;
+        params[num_sta].preamble = (wifi_rtt_preamble)default_rtt_param.preamble;
+        params[num_sta].bw = (wifi_rtt_bw)default_rtt_param.bw;
         num_sta++;
 
     } else {
+
         /* Run by a provided rtt-ap-list file */
         FILE* fp;
         char bssid[ETHER_ADDR_STR_LEN];
@@ -1742,126 +1508,69 @@ static void testRTT()
         char first_char;
         memset(bssid, 0, sizeof(bssid));
         memset(ssid, 0, sizeof(ssid));
-        memset(params, 0, sizeof(params));
-
         /* Read a RTT AP list from a file */
         fp = fopen(rtt_aplist, "r");
         if (fp == NULL) {
             printMsg("\nRTT AP list file does not exist on %s.\n"
                     "Please specify correct full path or use default one, %s, \n"
                     "  by following order in file, such as:\n"
-                    "SSID | BSSID | chan_num |Channel BW(0=20MHZ,1=40MZ,2=80MHZ)|"
-                    " RTT_Type(1=1WAY,2=2WAY,3=auto) |Peer Type(STA=0, AP=1)| Burst Period|"
-                    " No of Burst| No of FTM Burst| FTM Retry Count| FTMR Retry Count| LCI| LCR|"
-                    " Burst Duration| Preamble|Channel_Bandwith|"
-                    " NTB Min Meas Time in units of 100us|\n",
-                    " NTB Max Meas Time in units of 10ms\n",
+                    "|SSID|BSSID|chan_num|Channel BW(0=20MHZ,1=40MZ,2=80MHZ)|"
+                    "RTT_Type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|Burst Period|"
+                    "No of Burst|No of FTM Burst|FTM Retry Count|FTMR Retry Count|LCI|LCR|"
+                    "Burst Duration|Preamble|Bandwith\n",
                     rtt_aplist, DEFAULT_RTT_FILE);
             return;
         }
+        printMsg("    %-16s%-20s%-8s%-12s%-10s%-10s%-16s%-10s%-14s%-11s%-12s%-5s%-5s%-15s%-10s\n",
+                "SSID", "BSSID", "chan", "Bandwidth", "RTT_Type", "RTT_Peer",
+                "Burst_Period", "No_Burst", "No_FTM_Burst", "FTM_Retry",
+                "FTMR_Retry", "LCI", "LCR", "Burst_duration", "Preamble", "Bandwidth");
         int i = 0;
         while (!feof(fp)) {
             if ((fscanf(fp, "%c", &first_char) == 1) && (first_char != '|')) {
-                result = fseek(fp, -1, SEEK_CUR);
-                if (result != 0) {
-                    printMsg("fseek failed %d\n", result);
-                    break;
-                }
-
-                result = fscanf(fp,"%s %s %u %u %u\n",
+                fseek(fp, -1, SEEK_CUR);
+                result = fscanf(fp, "%s %s %u %u %u %u %u %u %u %u %u %hhu %hhu %u %hhu %hhu\n",
                         ssid, bssid, (unsigned int*)&responder_channel,
                         (unsigned int*)&channel_width,
-                        (unsigned int*)&params[i].rtt_config.type);
-                if (result != 5) {
-                    printMsg("fscanf failed to read ssid, bssid, channel, type: %d\n", result);
+                        (unsigned int*)&params[i].type, (unsigned int*)&params[i].peer,
+                        &params[i].burst_period, &params[i].num_burst,
+                        &params[i].num_frames_per_burst,
+                        &params[i].num_retries_per_rtt_frame,
+                        &params[i].num_retries_per_ftmr,
+                        (unsigned char*)&params[i].LCI_request,
+                        (unsigned char*)&params[i].LCR_request,
+                        (unsigned int*)&params[i].burst_duration,
+                        (unsigned char*)&params[i].preamble,
+                        (unsigned char*)&params[i].bw);
+
+                if (result != 16) {
+                    printMsg("fscanf failed %d\n", result);
                     break;
                 }
+                params[i].channel = convert_channel(responder_channel, channel_width, is_6g);
+                parseMacAddress(bssid, params[i].addr);
 
-                result = fscanf(fp, "%u %u %u %u %u %u %hhu %hhu %u %hhu %u\n",
-                        (unsigned int*)&params[i].rtt_config.peer,
-                        &params[i].rtt_config.burst_period,
-                        &params[i].rtt_config.num_burst,
-                        &params[i].rtt_config.num_frames_per_burst,
-                        (unsigned int*)&params[i].rtt_config.num_retries_per_rtt_frame,
-                        (unsigned int*)&params[i].rtt_config.num_retries_per_ftmr,
-                        (unsigned char*)&params[i].rtt_config.LCI_request,
-                        (unsigned char*)&params[i].rtt_config.LCR_request,
-                        (unsigned int*)&params[i].rtt_config.burst_duration,
-                        (unsigned char*)&params[i].rtt_config.preamble, &channel_width);
-                if (result != 11) {
-                    printMsg("fscanf failed to read mc params %d\n", result);
-                    break;
-                }
-                params[i].rtt_config.bw = convert_channel_width_to_rtt_bw(channel_width);
-                if (params[i].rtt_config.bw == WIFI_RTT_BW_5) {
-                    printf("Unsupported rtt bw %x \n", params[i].rtt_config.bw);
-                    break;
-                }
-
-                if (params[i].rtt_config.type == RTT_TYPE_2_SIDED_11AZ_NTB) {
-                    result = fscanf(fp, "%14lu %14lu\n",
-                            &params[i].ntb_min_measurement_time,
-                            &params[i].ntb_max_measurement_time);
-                    if (result != 2) {
-                        printMsg("fscanf failed to read az params %d\n", result);
-                        break;
-                    }
-                }
-
-                params[i].rtt_config.channel = convert_channel(responder_channel,
-                        channel_width, is_6g);
-                parseMacAddress(bssid, params[i].rtt_config.addr);
-
-                printMsg("Target: [%d]: ssid: %-16s\n"
-                        " BSSID:%-20s\n"
-                        " center freq: %-8u\n"
-                        " center freq0:%-14u\n"
-                        " channel_width: %-12d\n"
-                        " Type:%-15s\n"
-                        " peer:%-10u\n"
-                        " burst_period:%-16u\n"
-                        " num_burst:%-10u\n"
-                        " num_frames_per_burst:%-14u\n"
-                        " num_retries_per_rtt_frame:%-11u\n"
-                        " num_retries_per_ftmr:%-5hhu\n"
-                        " LCI_request: %-5hhu\n"
-                        " LCR_request: %-15u\n"
-                        " burst_duration: %-10hhu\n"
-                        " preamble:%-10hhu\n"
-                        " bw:%-10hhu\n"
-                        " ntb_min_measurement_time: %-14lu\n"
-                        " ntb_max_measurement_time: %-14lu\n",
-                        i+1, ssid, bssid,
-                        params[i].rtt_config.channel.center_freq,
-                        params[i].rtt_config.channel.center_freq0,
-                        params[i].rtt_config.channel.width,
-                        RttTypeToString(params[i].rtt_config.type),
-                        params[i].rtt_config.peer,
-                        params[i].rtt_config.burst_period,
-                        params[i].rtt_config.num_burst,
-                        params[i].rtt_config.num_frames_per_burst,
-                        params[i].rtt_config.num_retries_per_rtt_frame,
-                        params[i].rtt_config.num_retries_per_ftmr,
-                        params[i].rtt_config.LCI_request,
-                        params[i].rtt_config.LCR_request,
-                        params[i].rtt_config.burst_duration,
-                        params[i].rtt_config.preamble,
-                        params[i].rtt_config.bw,
-                        params[i].ntb_min_measurement_time,
-                        params[i].ntb_max_measurement_time);
+                printMsg("[%d] %-16s%-20s%-8u%-14u%-12d%-10d%-10u%-16u%-10u%-14u%-11u%-12u%-5hhu%-5hhu%-15u%-10hhu-10hhu\n",
+                        i+1, ssid, bssid, params[i].channel.center_freq,
+                        params[i].channel.center_freq0, params[i].channel.width,
+                        params[i].type, params[i].peer, params[i].burst_period,
+                        params[i].num_burst, params[i].num_frames_per_burst,
+                        params[i].num_retries_per_rtt_frame,
+                        params[i].num_retries_per_ftmr, params[i].LCI_request,
+                        params[i].LCR_request, params[i].burst_duration, params[i].preamble, params[i].bw);
 
                 i++;
             } else {
                 /* Ignore the rest of the line. */
                 result = fscanf(fp, "%*[^\n]");
                 if (result != 1) {
-                    printMsg("fscanf failed to read the next line %d\n", result);
+                    printMsg("fscanf failed %d\n", result);
                     break;
                 }
 
                 result = fscanf(fp, "\n");
                 if (result != 1) {
-                    printMsg("fscanf failed after reading next line%d\n", result);
+                    printMsg("fscanf failed %d\n", result);
                     break;
                 }
             }
@@ -1871,20 +1580,16 @@ static void testRTT()
         fp = NULL;
     }
 
-    wifi_rtt_event_handler_v3 handler;
-    memset(&handler, 0, sizeof(handler));
-    handler.on_rtt_results_v3 = &onRTTResultsV3;
-
+    wifi_rtt_event_handler handler;
+    handler.on_rtt_results = &onRTTResults;
     if (!rtt_to_file || rtt_sta || rtt_nan)  {
         if (num_ap || num_sta) {
             if (num_ap) {
                 printMsg("Configuring RTT for %d APs\n", num_ap);
-                result = hal_fn.wifi_rtt_range_request_v3(rttCmdId, wlan0Handle,
-                        num_ap, params, handler);
+                result = hal_fn.wifi_rtt_range_request(rttCmdId, wlan0Handle, num_ap, params, handler);
             } else if (num_sta) {
                 printMsg("Configuring RTT for %d sta \n", num_sta);
-                result = hal_fn.wifi_rtt_range_request_v3(rttCmdId, wlan0Handle,
-                        num_sta, params, handler);
+                result = hal_fn.wifi_rtt_range_request(rttCmdId, wlan0Handle, num_sta, params, handler);
             }
 
             if (result == WIFI_SUCCESS) {
@@ -1922,47 +1627,31 @@ static int cancelRTT()
 static void getRTTCapability()
 {
     int ret;
-    wifi_rtt_capabilities_v3 rtt_capability;
-    ret = hal_fn.wifi_get_rtt_capabilities_v3(wlan0Handle, &rtt_capability);
+    wifi_rtt_capabilities rtt_capability;
+    ret = hal_fn.wifi_get_rtt_capabilities(wlan0Handle, &rtt_capability);
     if (ret == WIFI_SUCCESS) {
         printMsg("Supported Capabilites of RTT :\n");
-        if (rtt_capability.rtt_capab.rtt_one_sided_supported)
+        if (rtt_capability.rtt_one_sided_supported)
             printMsg("One side RTT is supported\n");
-        if (rtt_capability.rtt_capab.rtt_ftm_supported)
+        if (rtt_capability.rtt_ftm_supported)
             printMsg("FTM(11mc) RTT is supported\n");
-        if (rtt_capability.rtt_capab.lci_support)
+        if (rtt_capability.lci_support)
             printMsg("LCI is supported\n");
-        if (rtt_capability.rtt_capab.lcr_support)
+        if (rtt_capability.lcr_support)
             printMsg("LCR is supported\n");
-        if (rtt_capability.rtt_capab.bw_support) {
+        if (rtt_capability.bw_support) {
             printMsg("BW(%s %s %s %s) are supported\n",
-                    (rtt_capability.rtt_capab.bw_support & BW_20_SUPPORT) ? "20MHZ" : "",
-                    (rtt_capability.rtt_capab.bw_support & BW_40_SUPPORT) ? "40MHZ" : "",
-                    (rtt_capability.rtt_capab.bw_support & BW_80_SUPPORT) ? "80MHZ" : "",
-                    (rtt_capability.rtt_capab.bw_support & BW_160_SUPPORT) ? "160MHZ" : "");
+                    (rtt_capability.bw_support & BW_20_SUPPORT) ? "20MHZ" : "",
+                    (rtt_capability.bw_support & BW_40_SUPPORT) ? "40MHZ" : "",
+                    (rtt_capability.bw_support & BW_80_SUPPORT) ? "80MHZ" : "",
+                    (rtt_capability.bw_support & BW_160_SUPPORT) ? "160MHZ" : "");
         }
-        if (rtt_capability.rtt_capab.preamble_support) {
+        if (rtt_capability.preamble_support) {
             printMsg("Preamble(%s %s %s) are supported\n",
-                    (rtt_capability.rtt_capab.preamble_support & PREAMBLE_LEGACY) ? "Legacy" : "",
-                    (rtt_capability.rtt_capab.preamble_support & PREAMBLE_HT) ? "HT" : "",
-                    (rtt_capability.rtt_capab.preamble_support & PREAMBLE_VHT) ? "VHT" : "");
+                    (rtt_capability.preamble_support & PREAMBLE_LEGACY) ? "Legacy" : "",
+                    (rtt_capability.preamble_support & PREAMBLE_HT) ? "HT" : "",
+                    (rtt_capability.preamble_support & PREAMBLE_VHT) ? "VHT" : "");
 
-        }
-
-        if (rtt_capability.az_preamble_support) {
-            printMsg("AZ preamble is supported\n");
-        }
-
-        if (rtt_capability.az_bw_support) {
-            printMsg("AZ bw is supported\n");
-        }
-
-        if (rtt_capability.ntb_initiator_supported) {
-            printMsg("NTB initiator is supported\n");
-        }
-
-        if (rtt_capability.ntb_responder_supported) {
-            printMsg("NTB responder is supported\n");
         }
     } else {
         printMsg("Could not get the rtt capabilities : %d\n", ret);
@@ -1994,9 +1683,7 @@ static void setupTwtRequest(char *argv[]) {
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
+        if (strcmp(param, "-config_id") == 0) {
             msg.config_id = atoi(val_p);
         } else if (strcmp(param, "-neg_type") == 0) {
             msg.negotiation_type = atoi(val_p);
@@ -2027,19 +1714,12 @@ static void setupTwtRequest(char *argv[]) {
         }
     }
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
         printMsg("Failed to initialize twt handlers %d\n", ret);
         goto exit;
     }
-
-    ret = twt_setup_request(ifHandle, &msg);
-
+    ret = twt_setup_request(wlan0Handle, &msg);
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
@@ -2068,9 +1748,7 @@ static void TeardownTwt(char *argv[]) {
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
+        if (strcmp(param, "-config_id") == 0) {
             msg.config_id = atoi(val_p);
         } else if (strcmp(param, "-all_twt") == 0) {
             msg.all_twt = atoi(val_p);
@@ -2083,19 +1761,12 @@ static void TeardownTwt(char *argv[]) {
         }
     }
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
         printMsg("Failed to initialize twt handlers %d\n", ret);
         goto exit;
     }
-
-    ret = twt_teardown_request(ifHandle, &msg);
-
+    ret = twt_teardown_request(wlan0Handle, &msg);
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
@@ -2124,9 +1795,7 @@ static void InfoFrameTwt(char *argv[]) {
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
+        if (strcmp(param, "-config_id") == 0) {
             msg.config_id = atoi(val_p);
         } else if (strcmp(param, "-all_twt") == 0) {
             msg.all_twt = atoi(val_p);
@@ -2139,19 +1808,12 @@ static void InfoFrameTwt(char *argv[]) {
         }
     }
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
         printMsg("Failed to initialize twt handlers %d\n", ret);
         goto exit;
     }
-
-    ret = twt_info_frame_request(ifHandle, &msg);
-
+    ret = twt_info_frame_request(wlan0Handle, &msg);
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
@@ -2174,13 +1836,11 @@ static void GetTwtStats(char *argv[]) {
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
         if (!val_p || *val_p == '-') {
-            printMsg("%s:Need value following %s\n", __FUNCTION__, param);
+            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
+        if (strcmp(param, "-config_id") == 0) {
             config_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for get stats request\n", __FUNCTION__);
@@ -2189,15 +1849,8 @@ static void GetTwtStats(char *argv[]) {
         }
     }
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
     memset(&twt_stats, 0, sizeof(twt_stats));
-
-    ret = twt_get_stats(ifHandle, config_id, &twt_stats);
-
+    ret = twt_get_stats(wlan0Handle, config_id, &twt_stats);
     if (ret == WIFI_SUCCESS) {
         printMsg("TWT stats :\n");
         if (twt_stats.config_id)
@@ -2242,9 +1895,7 @@ void ClearTwtStats(char *argv[]) {
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
+        if (strcmp(param, "-config_id") == 0) {
             config_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for twt info request\n", __FUNCTION__);
@@ -2253,56 +1904,22 @@ void ClearTwtStats(char *argv[]) {
         }
     }
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
         printMsg("Failed to initialize twt handlers %d\n", ret);
         goto exit;
     }
-    ret = twt_clear_stats(ifHandle, config_id);
-
+    ret = twt_clear_stats(wlan0Handle, config_id);
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
 }
 
-static void getTWTCapability(char *argv[]) {
-    wifi_error ret = WIFI_SUCCESS;
-    char *param, *val_p;
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for twt capability request\n", __FUNCTION__);
-            ret = WIFI_ERROR_INVALID_ARGS;
-            goto exit;
-        }
-    }
-
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
+static void getTWTCapability() {
+    int ret;
     TwtCapabilitySet twt_capability;
 
-    ret = twt_get_capability(ifHandle, &twt_capability);
+    ret = twt_get_capability(wlan0Handle, &twt_capability);
     if (ret == WIFI_SUCCESS) {
         printMsg("Supported Capabilites of TWT :\n");
         if (twt_capability.device_capability.requester_supported)
@@ -2324,7 +1941,6 @@ static void getTWTCapability(char *argv[]) {
     } else {
         printMsg("Could not get the twt capabilities : %d\n", ret);
     }
-exit:
     return;
 }
 
@@ -2389,6 +2005,53 @@ static int cancelRttResponder()
 
     ret = hal_fn.wifi_disable_responder(id, wlan0Handle);
     return ret;
+}
+
+/* CHRA NAN RTT related */
+static void OnChreNanRttStateChanged(chre_nan_rtt_state state) {
+    printMsg("CHRE NAN RTT state update : %d\n", state);
+    putEventInCache(EVENT_TYPE_CHRE_NAN_RTT_STATE_UPDATED, "CHRE NAN RTT state updated");
+}
+
+static void enableChreNanRtt() {
+    wifi_error ret = WIFI_SUCCESS;
+    ret = hal_fn.wifi_nan_rtt_chre_enable_request(0, wlan0Handle, NULL);
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to enable CHRE NAN RTT: %d\n", ret);
+    }
+
+    return;
+}
+
+static void disableChreNanRtt() {
+    wifi_error ret = WIFI_SUCCESS;
+    ret = hal_fn.wifi_nan_rtt_chre_disable_request(0, wlan0Handle);
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to disable CHRE NAN RTT: %d\n", ret);
+    }
+
+    return;
+}
+
+static void registerChreCallback() {
+    wifi_error ret = WIFI_SUCCESS;
+    EventInfo info;
+    wifi_chre_handler handler;
+    handler.on_chre_nan_rtt_change = OnChreNanRttStateChanged;
+    ret = hal_fn.wifi_chre_register_handler(wlan0Handle, handler);
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to register CHRE callback: %d\n", ret);
+    } else {
+        while (true) {
+            memset(&info, 0, sizeof(info));
+            getEventFromCache(info);
+            if (info.type == EVENT_TYPE_CHRE_NAN_RTT_STATE_UPDATED) {
+                printMsg("Received CHRE NAN RTT state, end the CHRE NAN RTT monitor!!\n");
+                break;
+            }
+        }
+    }
+    return;
 }
 
 static void printCachedScanResults(wifi_cached_scan_report *cache_report) {
@@ -2463,52 +2126,6 @@ static void getWifiCachedScanResults(void) {
     return;
 }
 
-/* CHRA NAN RTT related */
-static void OnChreNanRttStateChanged(chre_nan_rtt_state state) {
-    printMsg("CHRE NAN RTT state update : %d\n", state);
-    putEventInCache(EVENT_TYPE_CHRE_NAN_RTT_STATE_UPDATED, "CHRE NAN RTT state updated");
-}
-
-static void enableChreNanRtt() {
-    wifi_error ret = WIFI_SUCCESS;
-    ret = hal_fn.wifi_nan_rtt_chre_enable_request(0, wlan0Handle, NULL);
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to enable CHRE NAN RTT: %d\n", ret);
-    }
-
-    return;
-}
-
-static void disableChreNanRtt() {
-    wifi_error ret = WIFI_SUCCESS;
-    ret = hal_fn.wifi_nan_rtt_chre_disable_request(0, wlan0Handle);
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to disable CHRE NAN RTT: %d\n", ret);
-    }
-
-    return;
-}
-
-static void registerChreCallback() {
-    wifi_error ret = WIFI_SUCCESS;
-    EventInfo info;
-    wifi_chre_handler handler;
-    handler.on_chre_nan_rtt_change = OnChreNanRttStateChanged;
-    ret = hal_fn.wifi_chre_register_handler(wlan0Handle, handler);
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to register CHRE callback: %d\n", ret);
-    } else {
-        while (true) {
-            memset(&info, 0, sizeof(info));
-            getEventFromCache(info);
-            if (info.type == EVENT_TYPE_CHRE_NAN_RTT_STATE_UPDATED) {
-                printMsg("Received CHRE NAN RTT state, end the CHRE NAN RTT monitor!!\n");
-                break;
-            }
-        }
-    }
-    return;
-}
 static int GetCachedGScanResults(int max, wifi_scan_result *results, int *num)
 {
     int num_results = 64;
@@ -2987,15 +2604,15 @@ static void onRingBufferData(char *ring_name, char *buffer, int buffer_size,
                 case WIFI_TAG_CHANNEL_SPEC:
                 {
                     wifi_channel_info *ch_spec = (wifi_channel_info *) tlv_data->value;
-                    printMsg("Channel Info: center_freq=%d, freq0=%d, freq1=%d, width=%s\n",
-                        ch_spec->center_freq, ch_spec->center_freq0,
-                        ch_spec->center_freq1, RBchanWidthToString(ch_spec->width));
+                    printMsg("Channel Info: center_freq=%d, freq0=%d, freq1=%d, width=%s (%d)\n",
+                        RBchanWidthToString(ch_spec->width), ch_spec->center_freq,
+                        ch_spec->center_freq0, ch_spec->center_freq1);
                     break;
                 }
 
                 case WIFI_TAG_WAKE_LOCK_EVENT:
                 {
-                    printMsg("Wake lock event = \"TO BE DONE LATER\"\n");
+                    printMsg("Wake lock event = \"TO BE DONE LATER\"\n", tlv_data->value);
                     break;
                 }
 
@@ -3003,7 +2620,7 @@ static void onRingBufferData(char *ring_name, char *buffer, int buffer_size,
                 {
                     u64 tsf = 0;
                     memcpy(&tsf, tlv_data->value, tlv_data->length);
-                    printMsg("TSF value = %llu\n", tsf);
+                    printMsg("TSF value = %d\n", tsf);
                     break;
                 }
 
@@ -3192,15 +2809,10 @@ static wifi_error LoggerGetFW()
     char buffer[BSIZE];
     memset(buffer, 0, BSIZE);
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        return WIFI_ERROR_INVALID_ARGS;
-    }
-
-    ret = hal_fn.wifi_get_firmware_version(ifHandle, buffer, buffer_size);
+    ret = hal_fn.wifi_get_firmware_version(wlan0Handle, buffer, buffer_size);
 
     if (ret == WIFI_SUCCESS)
-        printMsg("FW version (len=%lu):\n%s\n", strlen(buffer), buffer);
+        printMsg("FW version (len=%d):\n%s\n", strlen(buffer), buffer);
     else
         printMsg("Failed to get FW version\n");
 
@@ -3216,15 +2828,10 @@ static wifi_error LoggerGetDriver()
     char buffer[BSIZE];
     memset(buffer, 0, BSIZE);
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        return WIFI_ERROR_INVALID_ARGS;
-    }
-
-    ret = hal_fn.wifi_get_driver_version(ifHandle, buffer, buffer_size);
+    ret = hal_fn.wifi_get_driver_version(wlan0Handle, buffer, buffer_size);
 
     if (ret == WIFI_SUCCESS)
-        printMsg("Driver version (len=%lu):\n%s\n", strlen(buffer), buffer);
+        printMsg("Driver version (len=%d):\n%s\n", strlen(buffer), buffer);
     else
         printMsg("Failed to get driver version\n");
 
@@ -3398,13 +3005,7 @@ static wifi_error LoggerGetTxPktFate()
     }
     memset(tx_report, 0, n_requested_pkt_fate * sizeof(*tx_report));
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        result = WIFI_ERROR_INVALID_ARGS;
-        goto exit;
-    }
-
-    result = hal_fn.wifi_get_tx_pkt_fates(ifHandle, tx_report,
+    result = hal_fn.wifi_get_tx_pkt_fates(wlan0Handle, tx_report,
             n_requested_pkt_fate, &n_provided_fates);
     if (result != WIFI_SUCCESS) {
         printMsg("Logger get tx pkt fate command failed, err = %d\n", result);
@@ -3417,7 +3018,7 @@ static wifi_error LoggerGetTxPktFate()
         goto exit;
     }
 
-    printMsg("No: of tx pkt fates provided = %zu\n", n_provided_fates);
+    printMsg("No: of tx pkt fates provided = %d\n", n_provided_fates);
 
     w_fp = fopen(tx_pkt_fate_file, "w");
     if (!w_fp) {
@@ -3490,13 +3091,7 @@ static wifi_error LoggerGetRxPktFate()
     }
     memset(rx_report, 0, n_requested_pkt_fate * sizeof(*rx_report));
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        result = WIFI_ERROR_INVALID_ARGS;
-        goto exit;
-    }
-
-    result = hal_fn.wifi_get_rx_pkt_fates(ifHandle, rx_report,
+    result = hal_fn.wifi_get_rx_pkt_fates(wlan0Handle, rx_report,
             n_requested_pkt_fate, &n_provided_fates);
     if (result != WIFI_SUCCESS) {
         printMsg("Logger get rx pkt fate command failed, err = %d\n", result);
@@ -3509,7 +3104,7 @@ static wifi_error LoggerGetRxPktFate()
         goto exit;
     }
 
-    printMsg("No: of rx pkt fates provided = %zu\n", n_provided_fates);
+    printMsg("No: of rx pkt fates provided = %d\n", n_provided_fates);
 
     w_fp = fopen(rx_pkt_fate_file, "w");
     if (!w_fp) {
@@ -3536,14 +3131,14 @@ static wifi_error LoggerGetRxPktFate()
         fprintf(w_fp, "Firmware Timestamp         :  %u\n", report_ptr->frame_inf.firmware_timestamp_usec);
         if (report_ptr->frame_inf.payload_type == FRAME_TYPE_ETHERNET_II) {
             frame_len = min(report_ptr->frame_inf.frame_len, (size_t)MAX_FRAME_LEN_ETHERNET);
-            fprintf(w_fp, "Frame Content (%04zu bytes) :  \n", frame_len);
-            fprhex(w_fp, report_ptr->frame_inf.frame_content.ethernet_ii_bytes, frame_len,
-                true);
+			fprintf(w_fp, "Frame Content (%04zu bytes) :  \n", frame_len);
+			fprhex(w_fp, report_ptr->frame_inf.frame_content.ethernet_ii_bytes, frame_len,
+				true);
         } else {
             frame_len = min(report_ptr->frame_inf.frame_len, (size_t)MAX_FRAME_LEN_80211_MGMT);
-            fprintf(w_fp, "Frame Content (%04zu bytes) :  \n", frame_len);
-            fprhex(w_fp, report_ptr->frame_inf.frame_content.ieee_80211_mgmt_bytes, frame_len,
-                true);
+			fprintf(w_fp, "Frame Content (%04zu bytes) :  \n", frame_len);
+			fprhex(w_fp, report_ptr->frame_inf.frame_content.ieee_80211_mgmt_bytes, frame_len,
+				true);
         }
         fprintf(w_fp, "\n--- END OF REPORT ---\n\n");
 
@@ -3753,8 +3348,6 @@ void readTestOptions(int argc, char *argv[]) {
                 band = WIFI_BAND_ABG;
             }
             j++;
-        } else if ((strcmp(argv[j], "-iface") == 0)) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(argv[j + 1]);
         } else if (strcmp(argv[j], "-scan_mac_oui") == 0 && isxdigit(argv[j+1][0])) {
             parseMacOUI(argv[++j], mac_oui);
         } else if ((strcmp(argv[j], "-ssid") == 0)) {
@@ -3817,30 +3410,33 @@ void readTestOptions(int argc, char *argv[]) {
                printf(" flags %d\n", epno_ssid[epno_cfg.num_networks].flags);
             }
             j++;
-        } else if (strcmp(argv[j], "-blacklist_bssids") == 0 && isxdigit(argv[j+1][0])) {
-            j++;
-            for (num_blacklist_bssids = 0;
-                j < argc && isxdigit(argv[j][0]) &&
-                num_blacklist_bssids < MAX_BLACKLIST_BSSID;
-                j++, num_blacklist_bssids++) {
-                parseMacAddress(argv[j], blacklist_bssids[num_blacklist_bssids]);
+        } else if ((strcmp(argv[j], "-blacklist_bssids") == 0 && isxdigit(argv[j+1][0])) ||
+            (strcmp(argv[j], "-whitelist_ssids") == 0)) {
+            if (strcmp(argv[j], "-blacklist_bssids") == 0 && isxdigit(argv[j+1][0])) {
+                j++;
+                for (num_blacklist_bssids = 0;
+                    j < argc && isxdigit(argv[j][0]) &&
+                    num_blacklist_bssids < MAX_BLACKLIST_BSSID;
+                    j++, num_blacklist_bssids++) {
+                    parseMacAddress(argv[j], blacklist_bssids[num_blacklist_bssids]);
+                }
             }
-            j -= 1;
-        } else if (strcmp(argv[j], "-whitelist_ssids") == 0) {
-            j++;
-            for (num_whitelist_ssids = 0;
-                j < argc && (num_whitelist_ssids < MAX_WHITELIST_SSID);
-                j++, num_whitelist_ssids++) {
-                   if ((strcmp(argv[j], "-blacklist_bssids") == 0) ||
-                        isxdigit(argv[j][0])) {
-                        num_whitelist_ssids--;
-                        continue;
-                    }
-                strncpy(whitelist_ssids[num_whitelist_ssids], argv[j],
-                min(strlen(argv[j]), (size_t)(MAX_SSID_LEN-1)));
+            if (strcmp(argv[j], "-whitelist_ssids") == 0) {
+                j++;
+                for (num_whitelist_ssids = 0;
+                    j < argc && (num_whitelist_ssids < MAX_WHITELIST_SSID);
+                    j++, num_whitelist_ssids++) {
+                        if ((strcmp(argv[j], "-blacklist_bssids") == 0) ||
+                            isxdigit(argv[j][0])) {
+                            num_whitelist_ssids--;
+                            continue;
+                        }
+                    strncpy(whitelist_ssids[num_whitelist_ssids], argv[j],
+                    min(strlen(argv[j]), (size_t)(MAX_SSID_LEN-1)));
+                }
+                /* Setting this flag to true here as -blacklist_bssids has already existing explicit handler */
+                set_roaming_configuration = true;
             }
-            /* Setting this flag to true here as -blacklist_bssids has already existing explicit handler */
-            set_roaming_configuration = true;
             j -= 1;
         } else if (strcmp(argv[j], "-rssi_monitor") == 0 && isdigit(argv[j+1][0])) {
             rssi_monitor = atoi(argv[++j]);
@@ -3903,7 +3499,7 @@ void readRTTOptions(int argc, char *argv[]) {
             u8 rtt_type = atoi(argv[++j]);
             if (rtt_type == 1) {
                 printf("RTT Type is ONE-SIDED\n");
-                type = RTT_TYPE_1_SIDED;
+                default_rtt_param.type = RTT_TYPE_1_SIDED;
             }
         } else if ((strcmp(argv[j], "-o") == 0)) {
             /*
@@ -3952,33 +3548,6 @@ void readRTTOptions(int argc, char *argv[]) {
                         }
                     }
                 }
-
-                /* Read rtt_type if present */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        type = (wifi_rtt_type)atoi(argv[j]);
-                        printf("rtt_type %d \n", type);
-                    }
-                }
-
-                /* Read ntb_min_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_min_meas_time = atoi(argv[j]);
-                        printf("ntb_min_meas_time as %lu \n", ntb_min_meas_time);
-                    }
-                }
-
-                /* Read ntb_max_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_max_meas_time = atoi(argv[j]);
-                        printf("ntb_max_meas_time as %lu \n", ntb_max_meas_time);
-                    }
-                }
             }
         }
     }
@@ -4021,28 +3590,8 @@ void readLoggerOptions(int argc, char *argv[])
     } else if ((strcmp(argv[j], "-get") == 0) && (argc > 3)) {
         if ((strcmp(argv[j+1], "fw") == 0)) {
             log_cmd = LOG_GET_FW_VER;
-            j++;
-            while (j+1 < argc-1) {
-                if (strcmp(argv[j+1], "-iface") == 0) {
-                    j++;
-                    if (j+1 < argc-1) {
-                        ifHandle = wifi_get_iface_handle_by_iface_name(argv[j+1]);
-                    }
-                }
-                j++;
-            }
         } else if ((strcmp(argv[j+1], "driver") == 0)) {
             log_cmd = LOG_GET_DRV_VER;
-            j++;
-            while (j+1 < argc-1) {
-                if (strcmp(argv[j+1], "-iface") == 0) {
-                    j++;
-                    if (j+1 < argc-1) {
-                        ifHandle = wifi_get_iface_handle_by_iface_name(argv[j+1]);
-                    }
-                }
-                j++;
-            }
         } else if ((strcmp(argv[j+1], "memdump") == 0)) {
             log_cmd = LOG_GET_MEMDUMP;
             j++;
@@ -4080,11 +3629,6 @@ void readLoggerOptions(int argc, char *argv[])
                         strncpy(tx_pkt_fate_file, argv[j+1], len);
                         tx_pkt_fate_file[len] = '\0';
                     }
-                } else if (strcmp(argv[j+1], "-iface") == 0) {
-                    j++;
-                    if (j+1 < argc-1) {
-                        ifHandle = wifi_get_iface_handle_by_iface_name(argv[j+1]);
-                    }
                 }
                 j++;
             }
@@ -4103,11 +3647,6 @@ void readLoggerOptions(int argc, char *argv[])
                         size_t len = min(strlen(argv[j+1]), (size_t)(FILE_NAME_LEN - 1));
                         strncpy(rx_pkt_fate_file, argv[j+1], len);
                         rx_pkt_fate_file[len] = '\0';
-                    }
-                } else if (strcmp(argv[j+1], "-iface") == 0) {
-                    j++;
-                    if (j+1 < argc-1) {
-                        ifHandle = wifi_get_iface_handle_by_iface_name(argv[j+1]);
                     }
                 }
                 j++;
@@ -4346,12 +3885,11 @@ const char *rates[] = {
     "HT N/A   | VHT/HE MCS11 NSS2",
 };
 
-/* Legacy rates */
-#define NUM_RATES (sizeof(rates)/sizeof(rates[0]))
 #define NUM_EHT_RATES (sizeof(eht_rates)/sizeof(eht_rates[0]))
+#define NUM_RATES (sizeof(rates)/sizeof(rates[0]))
 
-#define RATE_SPEC_STR_LEN       10
-#define RATE_SPEC_CHECK_INDEX   27
+#define RATE_SPEC_STR_LEN 10
+#define RATE_SPEC_CHECK_INDEX 27
 const char rate_stat_preamble[][RATE_SPEC_STR_LEN] = {
     "OFDM",
     "CCK",
@@ -4423,9 +3961,9 @@ void update_peer_info_per_link(u8 **buf) {
         return;
     }
 
-    if ((local_peer_ptr->num_rate == NUM_RATES) ||
-        (local_peer_ptr->num_rate == NUM_EHT_RATES)) {
-        printPeerinfoStats(local_peer_ptr);
+    printPeerinfoStats(local_peer_ptr);
+
+    if (local_peer_ptr->num_rate) {
         *buf += offsetof(wifi_peer_info, rate_stats);
         if (!*buf) {
             ALOGE("No valid rate_stats\n");
@@ -4438,11 +3976,10 @@ void update_peer_info_per_link(u8 **buf) {
 void printPerLinkStats(wifi_link_stat *local_link_ptr, int link_id) {
     printMsg("Printing link statistics of the link:%d\n", link_id);
     printMsg("Identifier for the link = %d\n", local_link_ptr->link_id);
-    printMsg("State of the link = %d\n", local_link_ptr->state);
     printMsg("Radio on which link stats are sampled. = %d\n", local_link_ptr->radio);
     printMsg("Frequency on which link is operating. = %d MHz\n", local_link_ptr->frequency);
     printMsg("beacon_rx = %d\n", local_link_ptr->beacon_rx);
-    printMsg("average_tsf_offset= %llu\n", local_link_ptr->average_tsf_offset);
+    printMsg("average_tsf_offset= %d\n", local_link_ptr->average_tsf_offset);
     printMsg("leaky_ap_detected= %d\n", local_link_ptr->leaky_ap_detected);
     printMsg("leaky_ap_avg_num_frames_leaked= %d\n",
         local_link_ptr->leaky_ap_avg_num_frames_leaked);
@@ -4483,8 +4020,7 @@ void update_per_link_data(u8 **buf, int link_id) {
 
     printPerLinkStats(local_link_ptr, link_id);
 
-    /* For STA, peer would be only one - AP. */
-    if (local_link_ptr->num_peers == NUM_PEER_AP) {
+    if (local_link_ptr->num_peers) {
         for (int j = 0; j < local_link_ptr->num_peers; j++) {
             *buf += offsetof(wifi_link_stat, peer_info);
             if (!*buf) {
@@ -4513,29 +4049,24 @@ void onMultiLinkStatsResults(wifi_request_id id, wifi_iface_ml_stat *iface_ml_st
     local_cca_ptr = (u8*)cca_stat;
 
     for (int i = 0; i < num_radios; i++) {
-        memset(&rx_stat[i], 0, sizeof(wifi_radio_stat));
+        memset(&rx_stat[i], 0, sizeof(&rx_stat[i]));
         memcpy(&rx_stat[i], (u8*)local_rx_ptr, offsetof(wifi_radio_stat, channels));
         local_rx_ptr += offsetof(wifi_radio_stat, channels);
         num_channels = rx_stat[i].num_channels;
-
-        if (num_channels >= MAX_WIFI_USABLE_CHANNELS) {
-            ALOGE("Invalid num_channels value %d\n", num_channels);
-            break;
-        }
-
-        channel_size = sizeof(wifi_channel_stat)*num_channels;
-        if (cca_avail_size > num_channels) {
-	    memcpy(local_cca_ptr, (u8*)local_rx_ptr, channel_size);
-            cca_avail_size -= num_channels;
-        } else {
-	    ALOGE("No space left for chan_stat!!: cca_avail: %d, req: %d\n",
+        if (num_channels) {
+            channel_size = sizeof(wifi_channel_stat)*num_channels;
+	    if (cca_avail_size > num_channels) {
+                memcpy(local_cca_ptr, (u8*)local_rx_ptr, channel_size);
+                cca_avail_size -= num_channels;
+            } else {
+                ALOGE("No space left for chan_stat!!: cca_avail: %d, req: %d\n",
                 cca_avail_size, num_channels);
+                break;
+	    }
+	}
+        if (i == (num_radios - 1)) {
             break;
         }
-
-	if (i == (num_radios - 1)) {
-	    break;
-	}
         local_rx_ptr += channel_size;
         local_cca_ptr += channel_size;
     }
@@ -4544,7 +4075,7 @@ void onMultiLinkStatsResults(wifi_request_id id, wifi_iface_ml_stat *iface_ml_st
     buf_ptr = (u8*)iface_ml_stat;
     ml_links = iface_ml_stat->num_links;
 
-    if (ml_links < MAX_MLO_LINK) {
+    if (ml_links) {
         buf_ptr += offsetof(wifi_iface_ml_stat, links);
         for (int i = 0; i < ml_links; i++) {
             if (!buf_ptr) {
@@ -4554,8 +4085,6 @@ void onMultiLinkStatsResults(wifi_request_id id, wifi_iface_ml_stat *iface_ml_st
             printMsg("-----------------------------------------------------\n\n");
             update_per_link_data(&buf_ptr, i);
         }
-    } else {
-        ALOGE("Invalid ml links %d\n", ml_links);
     }
 }
 
@@ -4575,15 +4104,15 @@ void onLinkStatsResults(wifi_request_id id, wifi_iface_stat *iface_stat,
     int cca_avail_size = MAX_CH_BUF_SIZE;
 
     if (!num_radios || !iface_stat || !radio_stat) {
-            ALOGE("No valid radio stat data\n");
-            return;
+        ALOGE("No valid radio stat data\n");
+        return;
     }
 
     radios = num_radios;
     local_rx_stat_ptr = (u8*)radio_stat;
     local_cca_ptr = (u8*)cca_stat;
     for (int i = 0; i < num_radios; i++) {
-        memset(&rx_stat[i], 0, sizeof(wifi_radio_stat));
+        memset(&rx_stat[i], 0, sizeof(&rx_stat[i]));
         memcpy(&rx_stat[i], (u8*)local_rx_stat_ptr, offsetof(wifi_radio_stat, channels));
         local_rx_stat_ptr += offsetof(wifi_radio_stat, channels);
         num_channels = rx_stat[i].num_channels;
@@ -4594,7 +4123,7 @@ void onLinkStatsResults(wifi_request_id id, wifi_iface_stat *iface_stat,
                 cca_avail_size -= num_channels;
             } else {
                 ALOGE("No space left for chan_stat!!: cca_avail: %d, req: %d\n",
-                    cca_avail_size, num_channels);
+                cca_avail_size, num_channels);
                 break;
             }
         }
@@ -4652,12 +4181,10 @@ void printFeatureListBitMask(void)
     printMsg("WIFI_FEATURE_TX_TRANSMIT_POWER  0x000400000 - apture Tx transmit power levels\n");
     printMsg("WIFI_FEATURE_CONTROL_ROAMING    0x000800000 - Enable/Disable firmware roaming\n");
     printMsg("WIFI_FEATURE_IE_WHITELIST       0x001000000 - Support Probe IE white listing\n");
-    printMsg("WIFI_FEATURE_SCAN_RAND          0x002000000 - "
-        "Support MAC & Probe Sequence Number randomization\n");
+    printMsg("WIFI_FEATURE_SCAN_RAND          0x002000000 - Support MAC & Probe Sequence Number randomization\n");
     printMsg("WIFI_FEATURE_SET_TX_POWER_LIMIT 0x004000000 - Support Tx Power Limit setting\n");
     printMsg("WIFI_FEATURE_USE_BODY_HEAD_SAR  0x008000000 - Support Using Body/Head Proximity for SAR\n");
-    printMsg("WIFI_FEATURE_DYNAMIC_SET_MAC    0x010000000 - Support changing MAC address without"
-        " iface reset(down and up)\n");
+    printMsg("WIFI_FEATURE_DYNAMIC_SET_MAC    0x010000000 - Support changing MAC address without iface reset(down and up)\n");
     printMsg("WIFI_FEATURE_SET_LATENCY_MODE   0x040000000 - Support Latency mode setting\n");
     printMsg("WIFI_FEATURE_P2P_RAND_MAC       0x080000000 - Support P2P MAC randomization\n");
     printMsg("WIFI_FEATURE_INFRA_60G          0x100000000 - Support for 60GHz Band\n");
@@ -4688,6 +4215,9 @@ void printRadioComboMatrix(wifi_radio_combination_matrix *rc)
         }
         radio_combinations = (wifi_radio_combination *)((u8*)radio_combinations + sizeof(u32) +
             (num_radio_configurations * sizeof(wifi_radio_configuration)));
+        if (!radio_combinations) {
+            break;
+        }
     }
     return;
 }
@@ -4728,7 +4258,6 @@ void printMultiLinkStats(wifi_channel_stat cca_stat[],
     printMsg("\nPrinting radio statistics of multi link\n");
     printMsg("--------------------------------------\n");
     for (int i = 0; i < radios; i++) {
-        printMsg("--------------------------------------\n");
         printMsg("radio = %d\n", rx_stat[i].radio);
         printMsg("on time = %d\n", rx_stat[i].on_time);
         printMsg("tx time = %d\n", rx_stat[i].tx_time);
@@ -4742,13 +4271,12 @@ void printMultiLinkStats(wifi_channel_stat cca_stat[],
         printMsg("on_time_pno_scan(duration)= %d\n", rx_stat[i].on_time_pno_scan);
         printMsg("on_time_hs20 = %d\n", rx_stat[i].on_time_hs20);
         printMsg("cca channel statistics: (num_channels: %d)\n", rx_stat[i].num_channels);
-        printMsg("--------------------------------------\n");
-            for (int j = new_chan_base; j < (new_chan_base + rx_stat[i].num_channels); j++) {
-                printMsg("center_freq=%d (%8s), radio_on_time %10d, cca_busytime %10d\n",
+        for (int j = new_chan_base; j < (new_chan_base + rx_stat[i].num_channels); j++) {
+            printMsg("center_freq=%d (%8s), radio_on_time %10d, cca_busytime %10d\n",
                 cca_stat[j].channel.center_freq,
                 frequency_to_channel(cca_stat[j].channel.center_freq),
                 cca_stat[j].on_time, cca_stat[j].cca_busy_time);
-            }
+        }
         new_chan_base += rx_stat[i].num_channels;
     }
     printMsg("\n");
@@ -4830,7 +4358,7 @@ void printLinkStats(wifi_iface_stat *link_stat, wifi_channel_stat cca_stat[],
             printMsg("%-28s  %10d   %10d     %10d      %10d\n",
                 eht_rates[i], eht_rate_stat[i].tx_mpdu, eht_rate_stat[i].rx_mpdu,
                 eht_rate_stat[i].mpdu_lost, eht_rate_stat[i].retries);
-        } else if (num_rate == NUM_RATES) {
+	} else if (num_rate == NUM_RATES) {
             printMsg("%-28s  %10d   %10d     %10d      %10d\n",
                 rates[i], rate_stat[i].tx_mpdu, rate_stat[i].rx_mpdu,
                 rate_stat[i].mpdu_lost, rate_stat[i].retries);
@@ -4863,12 +4391,7 @@ void getChannelList(void)
     wifi_channel channel[MAX_CH_BUF_SIZE] =  {0, };
     int num_channels = 0, i = 0;
 
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        return;
-    }
-
-    int result = hal_fn.wifi_get_valid_channels(ifHandle, band, MAX_CH_BUF_SIZE,
+    int result = hal_fn.wifi_get_valid_channels(wlan0Handle, band, MAX_CH_BUF_SIZE,
             channel, &num_channels);
     if (result < 0) {
         printMsg("failed to get valid channels %d\n", result);
@@ -4886,11 +4409,11 @@ void getFeatureSet(void)
     int result = hal_fn.wifi_get_supported_feature_set(wlan0Handle, &set);
 
     if (result < 0) {
-        printMsg("Error %d\n", result);
+        printMsg("Error %d\n",result);
         return;
     }
     printFeatureListBitMask();
-    printMsg("Supported feature set bit mask - %lx\n", set);
+    printMsg("Supported feature set bit mask - %x\n", set);
     return;
 }
 
@@ -4907,7 +4430,7 @@ void getFeatureSetMatrix(void)
     }
     printFeatureListBitMask();
     for (int i = 0; i < size; i++)
-        printMsg("Concurrent feature set - %lx\n", set[i]);
+        printMsg("Concurrent feature set - %x\n", set[i]);
     return;
 }
 
@@ -4955,15 +4478,8 @@ int getWakeStats()
         return WIFI_ERROR_OUT_OF_MEMORY;
     }
     memset(wake_reason_cnt, 0 , sizeof(WLAN_DRIVER_WAKE_REASON_CNT));
-
     wake_reason_cnt->cmd_event_wake_cnt_sz = EVENT_COUNT;
     wake_reason_cnt->cmd_event_wake_cnt = (int*)malloc(EVENT_COUNT * sizeof(int));
-    if (!wake_reason_cnt->cmd_event_wake_cnt) {
-        printMsg("%s:Malloc failed\n",__FUNCTION__);
-        free(wake_reason_cnt);
-        return WIFI_ERROR_OUT_OF_MEMORY;
-    }
-    memset(wake_reason_cnt->cmd_event_wake_cnt, 0 , EVENT_COUNT * sizeof(int));
 
     int result = hal_fn.wifi_get_wake_reason_stats(wlan0Handle, wake_reason_cnt);
     if (result < 0) {
@@ -5053,40 +4569,12 @@ static wifi_error setRoamingConfiguration()
     return ret;
 }
 
-static wifi_error getRoamingCapabilities(char *argv[])
+static wifi_error getRoamingCapabilities()
 {
     wifi_error ret;
     wifi_roaming_capabilities roam_capability;
-    char *param, *val_p;
 
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else {
-            printMsg("%s:Unsupported Param to get roaming capabilites request\n", __FUNCTION__);
-            ret = WIFI_ERROR_INVALID_ARGS;
-            goto exit;
-        }
-    }
-
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        ret = WIFI_ERROR_INVALID_ARGS;
-        goto exit;
-    }
-
-    ret = hal_fn.wifi_get_roaming_capabilities(ifHandle, &roam_capability);
+    ret = hal_fn.wifi_get_roaming_capabilities(wlan0Handle, &roam_capability);
     if (ret == WIFI_SUCCESS) {
         printMsg("Roaming Capabilities\n"
             "max_blacklist_size = %d\n"
@@ -5095,18 +4583,12 @@ static wifi_error getRoamingCapabilities(char *argv[])
     } else {
         printMsg("Failed to get Roaming capabilities\n");
     }
-exit:
     return ret;
 }
 
 static wifi_error setFWRoamingState(fw_roaming_state_t state)
 {
     wifi_error ret = WIFI_SUCCESS;
-    ret = hal_fn.wifi_enable_firmware_roaming(wlan0Handle,
-            state);
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to set Firmware Roaming state %d\n", state);
-    }
 
     return ret;
 }
@@ -5255,8 +4737,6 @@ int testApfOptions(int argc, char *argv[])
     wifi_error ret;
     wifi_interface_handle ifHandle = NULL;
 
-    memset(iface_name, 0, sizeof(iface_name));
-
     argv++; /* skip utility */
     argv++; /* skip -apf command */
 
@@ -5269,10 +4749,6 @@ int testApfOptions(int argc, char *argv[])
             ret = WIFI_ERROR_INVALID_ARGS;
             goto usage;
         }
-    } else {
-        printMsg("argv is null\n");
-        ret = WIFI_ERROR_INVALID_ARGS;
-        goto usage;
     }
 
     ifHandle = wifi_get_iface_handle(halHandle, iface_name);
@@ -5282,6 +4758,11 @@ int testApfOptions(int argc, char *argv[])
         goto usage;
     } else {
         while ((val_p = *argv++) != NULL) {
+            if (!val_p) {
+                printMsg("%s: Need value following %s\n", __FUNCTION__, val_p);
+                ret = WIFI_ERROR_NOT_SUPPORTED;
+                goto usage;
+            }
             if (strcmp(val_p, "-set") == 0) {
                 val_p = *argv++;
                 if (strcmp(val_p, "program") == 0) {
@@ -5530,18 +5011,18 @@ static void printApfUsage() {
 
 static void printTwtUsage() {
     printf("Usage: halutil [OPTION]\n");
-    printf("halutil -twt -setup -iface <> -config_id <> -neg_type <0 for individual TWT, 1 for broadcast TWT> "
+    printf("halutil -twt -setup -config_id <> -neg_type <0 for individual TWT, 1 for broadcast TWT> "
             "-trigger_type <0 for non-triggered TWT, 1 for triggered TWT> "
             "-wake_dur_us <> -wake_int_us <> -wake_int_min_us <> "
             "-wake_int_max_us <> -wake_dur_min_us <> -wake_dur_max_us <> "
             "-avg_pkt_size <> -avg_pkt_num <> -wake_time_off_us <>\n");
-    printf("halutil -twt -info_frame -iface <> -config_id <>"
+    printf("halutil -twt -info_frame -config_id <>"
             " -all_twt <0 for individual setp request, 1 for all TWT> -resume_time_us <>\n");
-    printf("halutil -twt -teardown -iface <> -config_id <> -all_twt <> "
+    printf("halutil -twt -teardown -config_id <> -all_twt <> "
             " -neg_type <0 for individual TWT, 1 for broadcast TWT>\n");
-    printf("halutil -twt -get_stats -iface <> -config_id <>\n");
-    printf("halutil -twt -clear_stats -iface <> -config_id <>\n");
-    printf("halutil -get_capa_twt -iface <>\n");
+    printf("halutil -twt -get_stats -config_id <>\n");
+    printf("halutil -twt -clear_stats -config_id <>\n");
+    printf("halutil -get_capa_twt\n");
     printf("halutil -twt -event_chk\n");
     return;
 }
@@ -5671,7 +5152,7 @@ bandstr_to_wlan_mac_band(char *band_str, u32 *band)
 }
 
 void
-ifacestr_to_wifi_interface_mode(char *iface_str, wifi_interface_mode *mode)
+ifacestr_to_wifi_interface_mode(char *iface_str, u8 *mode)
 {
    if (!strcasecmp(iface_str, "sta")) {
        *mode = WIFI_INTERFACE_STA;
@@ -5717,10 +5198,10 @@ u32 usable_channel_parse_iface(char *val_p)
 {
     char *delim_end;
     char *delim = strtok_r(val_p, ",", &delim_end);
-    wifi_interface_mode iface_mode = WIFI_INTERFACE_UNKNOWN;
+    u8 iface_mode;
     u32 iface_mode_mask = 0;
-
     while (delim != NULL) {
+        iface_mode = 0;
         ifacestr_to_wifi_interface_mode(delim, &iface_mode);
         if (iface_mode != WIFI_INTERFACE_UNKNOWN) {
             iface_mode_mask |= (1 << iface_mode);
@@ -5734,11 +5215,11 @@ static wifi_error testUsableChannelOptions(int argc, char *argv[])
 {
     char *param;
     char *val_p;
-    u32 band_mask = 0;
-    u32 iface_mode_mask = 0;
-    u32 filter_mask = 0;
+    u32 band_mask;
+    u32 iface_mode_mask;
+    u32 filter_mask;
     u32 max_size = 0;
-    u32 size = 0;
+    u32 size;
     wifi_error ret;
     wifi_usable_channel* channels = NULL;
 
@@ -5762,16 +5243,15 @@ static wifi_error testUsableChannelOptions(int argc, char *argv[])
         }
     }
 
-    if ((max_size == 0) || (max_size > MAX_WIFI_USABLE_CHANNELS)) {
-        printMsg("Max size should be non-zero and less than MAX_WIFI_USABLE_CHANNELS\n");
+    printMsg("Usable channel param BAND:%d IFACE:%d FILTER:%d MAX_SIZE:%d\n", band_mask, iface_mode_mask, filter_mask, max_size);
+    if (max_size == 0) {
+        printMsg("Max size should be bigger than 0\n");
         return WIFI_ERROR_INVALID_ARGS;
     }
-
     if (band_mask == 0) {
         printMsg("Band mask should be bigger than 0\n");
         return WIFI_ERROR_INVALID_ARGS;
     }
-    printMsg("Usable channel param BAND:%d IFACE:%d FILTER:%d MAX_SIZE:%d\n", band_mask, iface_mode_mask, filter_mask, max_size);
 
     channels = (wifi_usable_channel *)malloc(sizeof(wifi_usable_channel) * max_size);
     if (!channels) {
@@ -5898,17 +5378,15 @@ void printUsage() {
     printf(" -blacklist_bssids blacklist bssids\n");
     printf(" -whitelist_ssids set whitelist ssids\n"
            " -whitelist_ssids ssid1 ssid2 ...\n");
-    printf(" -get_roaming_capabilities -iface <iface name> get roaming capabilities\n");
+    printf(" -get_roaming_capabilities get roaming capabilities\n");
     printf(" -set_fw_roaming_state set FW roaming state\n");
     printf(" -logger [-start] [-d <debug_level> -f <flags> -i <max_interval_sec>\n"
            "                   -s <min_data_size> -n <ring_name>]\n"
            "                  [pktmonitor]\n"
-           "         [-get]   [fw] [-iface <iface name>]"
-           "         [-get]   [driver] [-iface <iface name>]\n"
-           "         [-get]   [feature] [memdump -o <filename>]\n"
+           "         [-get]   [fw] [driver] [feature] [memdump -o <filename>]\n"
            "                  [ringstatus] [ringdata -n <ring_name>]\n"
-           "                  [txfate -n <no of pkts> -f <filename>] -iface <iface name>\n"
-           "                  [rxfate -n <no of pkts> -f <filename>] -iface <iface name>\n"
+           "                  [txfate -n <no of pkts> -f <filename>]\n"
+           "                  [rxfate -n <no of pkts> -f <filename>]\n"
            "         [-set]   [loghandler] [alerthandler]\n");
     printf(" -rssi_monitor enable/disable\n");
     printf(" -max_rssi max rssi threshold for RSSI monitor\n");
@@ -5966,109 +5444,72 @@ void printUsage() {
             "                [-instant_mode <0-disable, 1-enable>]\n"
             "                [-instant_chan <2.4/5GHz channel in MHz >]\n");
     printf(" -nan [-publish] [-svc <svc_name>] [-info <svc info>\n"
-            "    [-pub_type <0/1/2>] [-pub_count <val>] [-rssi_thresh_flag <0/1>]\n"
-            "    [-tx_type <0/1>] [-ttl <val>] [-svc_awake_dw <val>] [-match_ind <0/1/2>]\n"
-            "    [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]"
-            "    [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
-            "    [-recv_flag <0 to 15>] [-csid <cipher suite type 0/1/2/4/8>]"
-            "    [-key_type <1 or 2>] [-pmk <PMK value>]\n"
-            "    [-scid <scid value>] [-dp_type <0-Unicast, 1-multicast>]\n"
-            "    [-secure_dp <0-No security, 1-Security>] [-ranging <0-disable, 1-enable>)]\n"
-            "    [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
-            "    [BIT0 - Continuous Ranging event notification, "
-            "    BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
-            "    [-ingress [Ingress distance in centimeters] \n"
-            "    [ -egress [Egress distance in centimeters] \n"
-            "    [-auto_dp_accept [0 - User response required to accept dp,"
-            "    1 - User response not required to accept dp] \n"
-            "    [-suspendable <0/1>] [-nik <local nik of 16 chars>]\n"
-            "    [-bs_methods <supported bootstrapping methods>] \n"
-            "    [-pairing_setup <supported 0/1>] [-pairing_cache <supported 0/1]"
-            "    [-pairing_verification <supported 0/1>] \n");
-    printf(" -nan [-subscribe] [-svc <svc_name>] [-info <svc info>]\n"
-            "    [-sub_type <0/1>] [-sub_count <val>] [-pub_ssi <0/1>]\n"
-            "    [-ttl <val>] [-svc_awake_dw <val>] [-match_ind <0/1/2>]\n"
-            "    [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]\n"
-            "    [-mac_list <addr>] [-srf_use <0/1>] [-rssi_thresh_flag <0/1>]]\n"
-            "    [-srf_include <0/1>] [-srf_type <0/1>] [-recv_flag <0 to 7>]\n"
-            "    [-csid <cipher suite type 0/1/2/4/8>]  [-key_type <1 or 2>]\n"
-            "    [-scid <scid value>] [-dp_type <0-Unicast,1-multicast>]\n"
-            "    [-secure_dp <0-No security, 1-Security>] [-ranging <0-disable, 1-enable>)]\n"
-            "    [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
-            "    [BIT0 - Continuous Ranging event notification, "
-            "    BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
-            "    [-ingress [Ingress distance in centimeters] \n"
-            "    [ -egress [Egress distance in centimeters] \n"
-            "    [-suspendable <0/1>] [-nik <local nik of 16 chars>]\n"
-            "    [-bs_methods <supported bootstrapping methods>] \n"
-            "    [-pairing_setup <supported 0/1>] [-pairing_cache <supported 0/1]"
-            "    [-pairing_verification <supported 0/1>] \n");
+            "                [-pub_type <0/1/2>] [-pub_count <val>] [-rssi_thresh_flag <0/1>]\n"
+            "                [-tx_type <0/1>] [-ttl <val>] [-svc_awake_dw <val>] [-match_ind <0/1/2>]\n"
+            "                [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]  [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
+            "                [-recv_flag <0 to 15>] [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>] [-pmk <PMK value>]\n"
+            "                [-scid <scid value>] [-dp_type <0-Unicast, 1-multicast>]\n"
+            "                [-secure_dp <0-No security, 1-Security>] [-ranging <0-disable, 1-enable>)]\n"
+            "                [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
+            "                [BIT0 - Continuous Ranging event notification, BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
+            "                [-ingress [Ingress distance in centimeters] \n"
+            "                [ -egress [Egress distance in centimeters] \n"
+            "                [-auto_dp_accept [0 - User response required to accept dp, 1 - User response not required to accept dp] \n");
+    printf(" -nan [-subscribe] [-svc <svc_name>] [-info <svc info>\n"
+            "                [-sub_type <0/1>] [-sub_count <val>] [-pub_ssi <0/1>]\n"
+            "                [-ttl <val>] [-svc_awake_dw <val>] [-match_ind <0/1/2>]\n"
+            "                [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]\n"
+            "                [-mac_list <addr>] [-srf_use <0/1>] [-rssi_thresh_flag <0/1>]]\n"
+            "                [-srf_include <0/1>] [-srf_type <0/1>] [-recv_flag <0 to 7>]\n"
+            "                [-csid <cipher suite type 0/1/2/4/8>]  [-key_type <1 or 2>]\n"
+            "                [-scid <scid value>] [-dp_type <0-Unicast,1-multicast>]\n"
+            "                [-secure_dp <0-No security, 1-Security>] [-ranging <0-disable, 1-enable>)]\n"
+            "                [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
+            "                [BIT0 - Continuous Ranging event notification, BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
+            "                [-ingress [Ingress distance in centimeters] \n"
+            "                [ -egress [Egress distance in centimeters] \n");
     printf(" -nan [-cancel_pub <publish id>]\n");
     printf(" -nan [-cancel_sub <subscribe id>\n");
     printf(" -nan [-transmit] [-src_id <instance id>] [-dest_id <instance id>]\n"
-            "    [-peer_addr <mac addr>] [-info <svc info>] \n"
-            "    [-recv_flag <1-Disable followUp response, 0-Enable followup response from FW>]\n");
+            "                [-peer_addr <mac addr>] [-info <svc info>] \n"
+            "                [-recv_flag <1-Disable followUp response, 0-Enable followup response from FW>]\n");
     printf(" -nan [-get_capabilities]\n");
     printf("\n ****** Nan Data Path Commands ***** \n");
     printf(" -nan [-create] [-iface <iface name>]\n");
     printf(" -nan [-delete] [-iface <iface name>]\n");
     printf(" -nan [-init] [-pub_id <pub id>] [-disc_mac <discovery mac addr>]\n"
-            "    [-chan_req_type <NAN DP channel config options>]\n"
-            "    [-chan <channel in mhz>] [-iface <iface>] [-sec <security>] [-key_type <1 or 2>\n"
-            "    [-qos <qos>] [-info <seq of values in the frame body>]"
-            "    [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
-            "    [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>]"
-            "    [-pmk <PMK value>] [-svc <svc_name>]\n"
-            "    [-lcl_svc_id <local service id>] \n");
+            "                [-chan_req_type <NAN DP channel config options>]\n"
+            "                [-chan <channel in mhz>] [-iface <iface>] [-sec <security>]  [-key_type <1 or 2>\n"
+            "                [-qos <qos>] [-info <seq of values in the frame body>]  [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
+            "                [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>]  [-pmk <PMK value>] [-svc <svc_name>]\n");
     printf(" -nan [-resp] [-ndp_id <NDP id>] [-iface <NDP iface name>]\n"
-            "    [-resp_code <accept = 0, reject = 1>] [-qos <qos>]  [-key_type <1 or 2>] \n"
-            "    [-info <seq of values in the frame body>] "
-            "    [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
-            "    [-csid <cipher suite type 0/1/2/4/8>]"
-            "    [-key_type <1 or 2>] [-pmk <PMK value>] [-svc <svc_name>]\n"
-            "    [-lcl_svc_id <local service id>] \n");
+            "                [-resp_code <accept = 0, reject = 1>] [-qos <qos>]  [-key_type <1 or 2>] \n"
+            "                [-info <seq of values in the frame body>]  [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
+            "                [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>] [-pmk <PMK value>] [-svc <svc_name>]\n");
     printf(" -nan [-end] [-inst_count <count>] [-inst_id <NDP id>\n");
     printf(" -nan [-up] [-iface <iface name>] [-ip <ip>]\n");
     printf(" -nan [-addr]\n");
     printf(" -nan [-event_chk]\n");
     printf(" -nan [-ver]\n");
     printf(" -nan [-exit]\n");
-    printf(" -nan [-suspend] -svc_id [service_id]\n");
-    printf(" -nan [-resume] -svc_id [service_id]\n");
-    printf(" -nan [-pairing_req] [-pub_id <instance id>]\n"
-           "      [-type <0-setup, 1-verification>] [-peer_addr <mac addr>]\n"
-           "      [-password <password>] [-csid <cipher suite - 64/128>] [-akm <0-SAE, 1-PASN] \n"
-           "      [-nik <local nik>] [-pairing_cache <1-Enable , 0-Disable pairing cache>]\n"
-           "      [-pmk <32 byte PMK value>]\n");
-    printf(" -nan [-pairing_resp] [-pairing_id <pairing instance id>]\n"
-           "      [-rsp_code <0-ACCEPT,1-REJECT>] [-type <0-setup, 1-verification>]\n"
-           "      [-password <password>] [-csid <cipher suite - 64/128>] [-akm <0-SAE, 1-PASN] \n"
-           "      [-nik <local nik>] [-pairing_cache <1-Enable , 0-Disable pairing cache>]\n"
-           "      [-pmk <32 byte PMK value>]\n");
-    printf(" -nan [-pairing_end] -pid <pairing_instance_id>\n");
-    printf(" -nan [-bs_req] -dest_id <peer inst id> -lcl_id <local inst id> -peer_addr <mac addr>\n"
-           "      [-bs_methods <supported bootstrapping methods>] [-comeback <is it comeback BS req>]\n"
-           "      [-cookie <cookie info>] [-info <svc info>] [-sdea_info <sdea svc info>]\n");
-    printf(" -nan [-bs_resp] -dest_id <peer inst id> -lcl_id <local inst id> -peer_addr <macaddr>\n"
-           "      [-rsp_code <0-ACCEPT, 1-REJECT, 2- COMEBACK>] [-comeback_delay]\n"
-           "      [-cookie <cookie info>] [-info <svc info>] [-sdea_info <sdea svc info>]\n");
     printf(" -dscp [-set] [-s <start>] [-e <end>] [-ac <access_category>]\n");
     printf(" -dscp [-reset] \n");
-    printf(" -ch_avoid [-unsafe <band type, a,b>,<channel number>,"
-            "   <power capacity, maximum output for the channel in dBm>]\n"
-            "   -unsafe can be used multiple times b for BAND_24GHZ\n"
-            "   a for BAND_5GHZ [-m <mandatory flag as decimal>]\n"
-            "   1 << 0 for FLAG_UNSPECIFIED \n"
-            "   1 << 1 for FLAG_WIFI_DIRECT\n"
-            "   1 << 2 for FLAG_SOFTAP\n"
-            "   1 << 4 for FLAG_WIFI_AWARE\n");
-    printf(" -usable_ch [-b <band_mask>], [-i <iface_mask>], [-f <filter_mask>], "
-            "   [-m <max_size of channel>] [-b 2g,5g,6g]\n"
-            "   [-i sta,nan,softap,p2p_go,p2p_cli]\n");
+    printf(" -ch_avoid [-unsafe <band type, a,b>,<channel number>,<power capacity, maximum output for the channel in dBm>]\n"
+            "               -unsafe can be used multiple times\n"
+            "               b for BAND_24GHZ\n"
+            "               a for BAND_5GHZ\n"
+            "          [-m <mandatory flag as decimal>]\n"
+            "               1 << 0 for FLAG_UNSPECIFIED \n"
+            "               1 << 1 for FLAG_WIFI_DIRECT\n"
+            "               1 << 2 for FLAG_SOFTAP\n"
+            "               1 << 4 for FLAG_WIFI_AWARE\n");
+    printf(" -usable_ch [-b <band_mask>], [-i <iface_mask>], [-f <filter_mask>], [-m <max_size of channel>]\n"
+            "           [-b 2g,5g,6g]\n"
+            "           [-i sta,nan,softap,p2p_go,p2p_cli]\n");
     printf("-ifadd -name <virtual iface name to be created>"
            " -type <0 for STA, 1 for AP, 2 for P2P, 3 for NAN>\n");
     printf("-ifdel -name <virtual iface name to be deleted>\n");
-    printf(" -voip_mode <interface_name> <0|1> voip mode off/on on particular interface\n");
+    printf(" -voip_mode <interface_name> <0|1>    voip mode off/on on particular interface\n");
     printf(" -dtim_multiplier <dtim count>  Set suspend bcn_li_dtim.\n");
     printf(" -on_ssr  cmd to trigger sub system restart.\n");
     printf(" -getSupportedRadioMatrix  cmd to get the supported radio combo matrix.\n");
@@ -6094,29 +5535,9 @@ static int set_interface_params(char *p_info, char *val_p, int len) {
     return WIFI_SUCCESS;
 }
 
-static wifi_interface_handle wifi_get_iface_handle_by_iface_name(char *val_p) {
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    wifi_interface_handle ifHandle = NULL;
-
-    memset(iface_name, 0, sizeof(iface_name));
-
-    if (!set_interface_params(iface_name, val_p, (IFNAMSIZ - 1))) {
-        printMsg("set interface name successfull %s\n", iface_name);
-    } else {
-        printMsg("Invalid iface name\n");
-        return ifHandle;
-    }
-    ifHandle = wifi_get_iface_handle(halHandle, iface_name);
-    if (ifHandle == NULL) {
-        printMsg("Invalid iface handle for the requested interface\n");
-    }
-    return ifHandle;
-}
-
 void OnNanNotifyResponse(transaction_id id, NanResponseMsg* rsp_data) {
-    if (rsp_data) {
-    switch (rsp_data->response_type) {
+    if(rsp_data) {
+    switch(rsp_data->response_type) {
     case NAN_RESPONSE_ENABLED:
         printMsg("Nan Enable Response Received, status = %d\n", rsp_data->status);
         break;
@@ -6161,31 +5582,6 @@ void OnNanNotifyResponse(transaction_id id, NanResponseMsg* rsp_data) {
     case NAN_DP_END:
         printMsg("Nan Data Path End Response Received, status = %d\n", rsp_data->status);
         break;
-    case NAN_SUSPEND_REQUEST_RESPONSE:
-        printMsg("Nan Suspend Response Received, status = %d\n", rsp_data->status);
-        break;
-    case NAN_RESUME_REQUEST_RESPONSE:
-        printMsg("Nan Resume Response Received, status = %d\n", rsp_data->status);
-        break;
-    case NAN_PAIRING_INITIATOR_RESPONSE:
-        printMsg("Pairing init response received, pairing_instance_id = %d, status = %d\n",
-                rsp_data->body.pairing_request_response.paring_instance_id, rsp_data->status);
-        break;
-    case NAN_PAIRING_RESPONDER_RESPONSE:
-        printMsg("Pairing Response Received, status = %d\n", rsp_data->status);
-        break;
-    case NAN_PAIRING_END:
-        printMsg("Pairing End Response Received, status = %d\n", rsp_data->status);
-        break;
-    case NAN_BOOTSTRAPPING_INITIATOR_RESPONSE:
-        printMsg("Bootstrapping init response received, Bootstrapping_instance_id = %d,"
-                "status = %d\n",
-                rsp_data->body.bootstrapping_request_response.bootstrapping_instance_id,
-                rsp_data->status);
-        break;
-    case NAN_BOOTSTRAPPING_RESPONDER_RESPONSE:
-        printMsg("Bootstrapping Response Received, status = %d\n", rsp_data->status);
-        break;
     case NAN_GET_CAPABILITIES:
         printMsg("Nan Get Capabilities Response Received, status = %d\n", rsp_data->status);
         printMsg("max_concurrent_nan_clusters = %d\n",
@@ -6218,10 +5614,6 @@ void OnNanNotifyResponse(transaction_id id, NanResponseMsg* rsp_data) {
             rsp_data->body.nan_capabilities.max_sdea_service_specific_info_len);
         printMsg("ndpe_attr_supported = %d\n",
             rsp_data->body.nan_capabilities.ndpe_attr_supported);
-        printMsg("suspension_supported = %d\n",
-            rsp_data->body.nan_capabilities.is_suspension_supported);
-        printMsg("pairing_supported = %d\n",
-            rsp_data->body.nan_capabilities.is_pairing_supported);
         break;
     default:
         printMsg("Unknown Response Received, %d\n",
@@ -6276,22 +5668,14 @@ void OnNanEventMatch (NanMatchInd* event) {
             event->sdea_service_specific_info_len,
             event->sdea_service_specific_info);
     }
-    printMsg("Enable Pairing cache: %d\n", event->peer_pairing_config.enable_pairing_cache);
-    printMsg("Enable Pairing setup: %d\n", event->peer_pairing_config.enable_pairing_setup);
-    printMsg("Enable Pairing verification: %d\n",
-        event->peer_pairing_config.enable_pairing_verification);
-    printMsg("Peer Bootstrapping methods: %d\n",
-        event->peer_pairing_config.supported_bootstrapping_methods);
-    prhex_msg("NIRA nonce", event->nira.nonce, NAN_IDENTITY_NONCE_LEN);
-    prhex_msg("NIRA tag", event->nira.tag, NAN_IDENTITY_TAG_LEN);
     /* Event enabled is not available in android-m */
     putEventInCache(EVENT_TYPE_SUBSCRIBE_MATCHED,
         "SubscribeMatched");
 }
 void OnNanEventMatchExpired (NanMatchExpiredInd* event) {
     printMsg("NanMatchExpired between publish_subscribe_id = %u "
-            "and peer_instance_id = %u\n",
-            event->publish_subscribe_id, event->requestor_instance_id);
+        "and peer_instance_id = %u\n",
+        event->publish_subscribe_id, event->requestor_instance_id);
 }
 void OnNanEventSubscribeTerminated (NanSubscribeTerminatedInd* event) {
     char msg_buf[MAX_NAN_MSG_BUF_SIZE] = {'\0'};
@@ -6419,61 +5803,6 @@ void OnNanRangeReportInd (NanRangeReportInd *event) {
 void OnNanDataPathScheduleUpdateInd (NanDataPathScheduleUpdateInd *event) {
     printMsg("\n Received NanDataPathScheduleUpdateInd\n");
 }
-void OnNanSuspensionStatus (NanSuspensionModeChangeInd *event) {
-    printMsg("\n Received NanSuspensionModeChangeInd\n");
-}
-void OnNanEventPairingIndication(NanPairingRequestInd* event) {
-    printMsg("\n Local service id = %d\n", event->publish_subscribe_id);
-    printMsg(" Discovery MAC addr of the peer/initiator(" MACSTR ")\n",
-        MAC2STR(event->peer_disc_mac_addr));
-    printMsg(" pairing id = %d\n", event->pairing_instance_id);
-    printMsg(" request type = %d\n", event->nan_pairing_request_type);
-    printMsg(" pairing cache enabled = %d\n", event->enable_pairing_cache);
-    prhex_msg(" NIRA nonce", (u8 *)event->nira.nonce, NAN_IDENTITY_NONCE_LEN);
-    prhex_msg(" NIRA tag", (u8 *)event->nira.tag, NAN_IDENTITY_TAG_LEN);
-    putEventInCache(EVENT_TYPE_NAN_PAIRING_REQUEST_INDICATION,
-        "NanPairingEventIndication");
-}
-
-void OnNanEventPairingConfirmation(NanPairingConfirmInd* event) {
-    printMsg("\n pairing id = %d\n", event->pairing_instance_id);
-    printMsg(" rsp_code = %d\n", event->rsp_code);
-    printMsg(" reason = %s\n", event->reason_code);
-    printMsg(" request type = %d\n", event->nan_pairing_request_type);
-    printMsg(" pairing cache enabled = %d\n", event->enable_pairing_cache);
-    prhex_msg(" Peer NIK", event->npk_security_association.peer_nan_identity_key,
-        NAN_IDENTITY_KEY_LEN);
-    prhex_msg(" Local NIK", event->npk_security_association.local_nan_identity_key,
-        NAN_IDENTITY_KEY_LEN);
-    printMsg(" akm = %d\n", event->npk_security_association.akm);
-    printMsg(" csid = %d\n", event->npk_security_association.cipher_type);
-    prhex_msg(" NPK", (u8 *)event->npk_security_association.npk.pmk,
-        event->npk_security_association.npk.pmk_len);
-
-    putEventInCache(EVENT_TYPE_NAN_PAIRING_CONFIRMATION, "NanPairingEventConfirmation");
-}
-void OnNanEventBootstrappingIndication(NanBootstrappingRequestInd* event) {
-    printMsg("\n Requestor service id = %d\n", event->requestor_instance_id);
-    printMsg(" Local service id = %d\n", event->publish_subscribe_id);
-    printMsg(" Discovery MAC addr of the peer/initiator(" MACSTR ")\n",
-        MAC2STR(event->peer_disc_mac_addr));
-    printMsg(" Peer bootstrapping methods = %d\n", event->request_bootstrapping_method);
-    printMsg(" Bootstrapping instance id = %d\n", event->bootstrapping_instance_id);
-    putEventInCache(EVENT_TYPE_NAN_BOOTSTRAP_REQUEST_INDICATION,
-        "NanBootstrappingEventIndication");
-}
-
-void OnNanEventBootstrappingConfirmation(NanBootstrappingConfirmInd* event) {
-    printMsg("\n Bootstrapping instance id = %d\n", event->bootstrapping_instance_id);
-    printMsg(" rsp_code = %d\n", event->rsp_code);
-    printMsg(" reason = %d\n", event->reason_code);
-    printMsg(" come_back_delay = %d\n", event->come_back_delay);
-    if (event->cookie_length) {
-        prhex_msg("Cookie: ", event->cookie, event->cookie_length);
-    }
-    putEventInCache(EVENT_TYPE_NAN_BOOTSTRAP_CONFIRMATION,
-        "NanBootstrappingEventCOnfirmation");
-}
 
 wifi_error nan_init_handlers(void) {
     wifi_error ret = WIFI_SUCCESS;
@@ -6497,12 +5826,7 @@ wifi_error nan_init_handlers(void) {
     handlers.EventRangeRequest = OnNanRangeRequestInd;
     handlers.EventRangeReport = OnNanRangeReportInd;
     handlers.EventScheduleUpdate = OnNanDataPathScheduleUpdateInd;
-    handlers.EventSuspensionModeChange = OnNanSuspensionStatus;
-    handlers.EventPairingRequest = OnNanEventPairingIndication;
-    handlers.EventPairingConfirm = OnNanEventPairingConfirmation;
-    handlers.EventBootstrappingRequest = OnNanEventBootstrappingIndication;
-    handlers.EventBootstrappingConfirm = OnNanEventBootstrappingConfirmation;
-    ret = nan_register_handler(wlan0Handle, handlers);
+    ret = nan_register_handler(wlan0Handle , handlers);
     printMsg("%s: ret = %d\n", __FUNCTION__, ret);
     return ret;
 }
@@ -6699,7 +6023,7 @@ void enableNan(char *argv[]) {
     int sid_flag = 0xff, sid_count = 0xff;
     int sub_sid_flag = 0xff, sub_sid_count = 0xff;
     u8 val;
-    u16 clust_range = 0;
+    u16 clust_range;
 
     /* Set Default enable params */
     memset(&msg, 0, sizeof(msg));
@@ -6715,8 +6039,6 @@ void enableNan(char *argv[]) {
     msg.config_ndpe_attr = false;
     msg.cluster_low = 0;
     msg.cluster_high = NAN_MAX_CLUST_VALUE_RANGE;
-
-    enab_for_chre = 0;
 
     /* Parse args for nan params */
     /* skip utility */
@@ -6806,8 +6128,7 @@ void enableNan(char *argv[]) {
         } else if (strcmp(param, "-sub_sid_count") == 0) {
             sub_sid_count = atoi(val_p);
             if (sub_sid_count < 0 || sub_sid_count > NAN_MAX_SIDS_IN_BEACONS) {
-                printMsg("%s:Invalid Subscribe Service ID Count Limit. Setting to Default\n",
-                    __FUNCTION__);
+                printMsg("%s:Invalid Subscribe Service ID Count Limit. Setting to Default\n", __FUNCTION__);
                 sub_sid_count = 0;
             } else  {
                 msg.subscribe_sid_beacon_val = ((sub_sid_count << 1) | sub_sid_flag);
@@ -7067,6 +6388,7 @@ void enableNan(char *argv[]) {
             if (msg.enable_dw_termination) {
                 msg.config_dw_early_termination = true;
             }
+#ifdef NAN_3_1_SUPPORT
         } else if (strcmp(param, "-instant_mode") == 0) {
             msg.enable_instant_mode = atoi(val_p);
             msg.config_enable_instant_mode = true;
@@ -7080,8 +6402,7 @@ void enableNan(char *argv[]) {
                 ret = WIFI_ERROR_INVALID_ARGS;
                 goto exit;
             }
-        } else if (strcmp(param, "-chre") == 0) {
-            enab_for_chre = atoi(val_p);
+#endif /* NAN_3_1_SUPPORT */
         } else {
             printMsg("%s:Unsupported Parameter for Nan Enable\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -7090,76 +6411,27 @@ void enableNan(char *argv[]) {
     }
 
     nanCmdId = getNewCmdId();
-
-    if (enab_for_chre) {
-#ifdef CHRE_NAN
-        ret = nan_chre_enable_request(nanCmdId, wlan0Handle, NULL);
-        if (ret != WIFI_SUCCESS) {
-            printMsg("Failed to enable NAN for CHRE %d\n", ret);
-            goto exit;
-        }
-#endif /* CHRE_NAN */
-    } else {
-        ret = nan_init_handlers();
-        if (ret != WIFI_SUCCESS) {
-            printMsg("Failed to initialize handlers %d\n", ret);
-            goto exit;
-        }
-        ret = nan_enable_request(nanCmdId, wlan0Handle, &msg);
-        if (ret != WIFI_SUCCESS) {
-            printMsg("Failed to enable NAN %d\n", ret);
-            goto exit;
-        }
+    ret = nan_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize handlers %d\n", ret);
+        goto exit;
     }
+    ret = nan_enable_request(nanCmdId, wlan0Handle, &msg);
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
 }
 
-void disableNan(char *argv[]) {
+void disableNan(void) {
     wifi_error ret = WIFI_SUCCESS;
-    char *param, *val_p;
-
-    /* Parse args for nan params */
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    disab_for_chre = 0;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-chre") == 0) {
-            disab_for_chre = atoi(val_p);
-        }
-    }
-
     nanCmdId = getNewCmdId();
-
-    if (disab_for_chre) {
-#ifdef CHRE_NAN
-        ret = nan_chre_disable_request(nanCmdId, wlan0Handle);
-#endif /* CHRE_NAN */
-    } else {
-        ret = nan_init_handlers();
-        if (ret != WIFI_SUCCESS) {
-            printMsg("Failed to initialize handlers %d\n", ret);
-            return;
-        }
-        ret = nan_disable_request(nanCmdId, wlan0Handle);
+    ret = nan_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize handlers %d\n", ret);
+        return;
     }
-
-exit:
+    ret = nan_disable_request(nanCmdId, wlan0Handle);
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
 }
 
 void configNan(char *argv[]) {
@@ -7213,8 +6485,7 @@ void configNan(char *argv[]) {
             if (sub_sid_flag) {
                 msg.config_subscribe_sid_beacon = true;
             } else {
-                printMsg("%s:Invalid Subscribe Service Id Flag. Setting to Default\n",
-                    __FUNCTION__);
+                printMsg("%s:Invalid Subscribe Service Id Flag. Setting to Default\n", __FUNCTION__);
                 msg.config_subscribe_sid_beacon = false;
                 ret = WIFI_ERROR_INVALID_ARGS;
                 goto exit;
@@ -7222,8 +6493,7 @@ void configNan(char *argv[]) {
         } else if (strcmp(param, "-sub_sid_count") == 0) {
             sub_sid_count = atoi(val_p);
             if (sub_sid_count < 0 || sub_sid_count > NAN_MAX_SIDS_IN_BEACONS) {
-                printMsg("%s:Invalid Subscribe Service ID Count Limit. Setting to Default\n",
-                    __FUNCTION__);
+                printMsg("%s:Invalid Subscribe Service ID Count Limit. Setting to Default\n", __FUNCTION__);
                 sub_sid_count = 0;
             } else  {
                 msg.subscribe_sid_beacon_val = ((sub_sid_count << 1) | sub_sid_flag);
@@ -7346,7 +6616,7 @@ void configNan(char *argv[]) {
             }
         } else if (strcmp(param, "-numchans") == 0) {
             numchans = atoi(val_p);
-            if (numchans && (numchans < NAN_MAX_FAM_CHANNELS)) {
+            if (numchans) {
                 msg.config_fam = true;
                 msg.fam_val.numchans = numchans;
             } else {
@@ -7406,8 +6676,7 @@ void configNan(char *argv[]) {
             }
         } else if (strcmp(param, "-avail_interval_bitmap") == 0) {
             msg.fam_val.famchan[numchans].avail_interval_bitmap = atoi(val_p);
-            printMsg("avail_interval_bitmap = %d\n",
-                msg.fam_val.famchan[numchans].avail_interval_bitmap);
+            printMsg("avail_interval_bitmap = %d\n", msg.fam_val.famchan[numchans].avail_interval_bitmap);
             if (msg.fam_val.famchan[numchans].avail_interval_bitmap) {
                 msg.config_fam = true;
             } else {
@@ -7460,6 +6729,7 @@ void configNan(char *argv[]) {
             if (msg.enable_dw_termination) {
                 msg.config_dw_early_termination = true;
             }
+#ifdef NAN_3_1_SUPPORT
         } else if (strcmp(param, "-instant_mode") == 0) {
             msg.enable_instant_mode = atoi(val_p);
             msg.config_enable_instant_mode = true;
@@ -7473,6 +6743,7 @@ void configNan(char *argv[]) {
                 ret = WIFI_ERROR_INVALID_ARGS;
                 goto exit;
             }
+#endif /* NAN_3_1_SUPPORT */
         } else {
             printMsg("%s:Unsupported Parameter for Nan Config\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -7499,6 +6770,13 @@ void publishNan(int argc, char *argv[]) {
     u32 val = 0;
     u8 *match_rxtmp = NULL, *match_txtmp = NULL;
 
+    /* skip utility */
+    argv++;
+    /* skip command */
+    argv++;
+    /* skip command */
+    argv++;
+
     memset(&msg, 0, sizeof(msg));
     msg.publish_id = 0;
     msg.publish_type = NAN_PUBLISH_TYPE_UNSOLICITED_SOLICITED;
@@ -7507,13 +6785,6 @@ void publishNan(int argc, char *argv[]) {
     msg.sdea_params.ndp_type = NAN_DATA_PATH_UNICAST_MSG;
     msg.service_responder_policy = NAN_SERVICE_ACCEPT_POLICY_NONE;
     msg.period = 1;
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -7591,16 +6862,16 @@ void publishNan(int argc, char *argv[]) {
                     msg.tx_match_filter_len++;
                 }
             } else {
-                if (m_len < (NAN_MAX_MATCH_FILTER_LEN - msg.tx_match_filter_len)) {
-                    *match_txtmp++ = strlen(val_p);
-                    msg.tx_match_filter_len++;
-                    strncpy((char *)match_txtmp, val_p, strlen(val_p));
-                    match_txtmp += m_len;
-                    msg.tx_match_filter_len += m_len;
-                } else {
-                    printMsg("Invalid match filter len\n");
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
+            if (m_len < (NAN_MAX_MATCH_FILTER_LEN - msg.tx_match_filter_len)) {
+                *match_txtmp++ = strlen(val_p);
+                msg.tx_match_filter_len++;
+                strncpy((char *)match_txtmp, val_p, strlen(val_p));
+                match_txtmp += m_len;
+                msg.tx_match_filter_len += m_len;
+            } else {
+                printMsg("Invalid match filter len\n");
+                ret = WIFI_ERROR_INVALID_ARGS;
+                goto exit;
                 }
             }
         } else if (strcmp(param, "-match_rx") == 0) {
@@ -7654,18 +6925,14 @@ void publishNan(int argc, char *argv[]) {
                 case NAN_CIPHER_SUITE_SHARED_KEY_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_256_MASK;
                     break;
+#ifdef NAN_3_1_SUPPORT
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK;
                     break;
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK;
                     break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
+#endif /* NAN_3_1_SUPPORT */
                 default:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_NONE;
                     break;
@@ -7710,8 +6977,7 @@ void publishNan(int argc, char *argv[]) {
                 (strlen((const char*)val_p));
                 if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
                     val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                        msg.key_info.body.passphrase_info.passphrase_len);
+                    printMsg("Set passphrase successfull, len = %d\n", msg.key_info.body.passphrase_info.passphrase_len);
                 } else {
                     printMsg("Invalid passphrase\n");
                     ret = WIFI_ERROR_INVALID_ARGS;
@@ -7800,32 +7066,9 @@ void publishNan(int argc, char *argv[]) {
                 msg.service_responder_policy = NAN_SERVICE_ACCEPT_POLICY_NONE;
                 break;
             }
-        } else if (strcmp(param, "-suspendable") == 0) {
-            val = atoi(val_p);
-            if (val) {
-                msg.enable_suspendability = true;
-            }
-        } else if (strcmp(param, "-nik") == 0) {
-            int len = str2hex(val_p, (char*)msg.nan_identity_key);
-
-            if (len != NAN_IDENTITY_KEY_LEN) {
-                printMsg("Invalid local NIK info, len %d expected 16 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NIK", msg.nan_identity_key, NAN_IDENTITY_KEY_LEN);
-            }
-        } else if (strcmp(param, "-bs_methods") == 0) {
-            msg.nan_pairing_config.supported_bootstrapping_methods = atoi(val_p);
-        } else if (strcmp(param, "-pairing_setup") == 0) {
-            msg.nan_pairing_config.enable_pairing_setup = atoi(val_p);
-        } else if (strcmp(param, "-pairing_cache") == 0) {
-            msg.nan_pairing_config.enable_pairing_cache = atoi(val_p);
-        } else if (strcmp(param, "-pairing_verification") == 0) {
-            msg.nan_pairing_config.enable_pairing_verification = atoi(val_p);
         } else {
-            printMsg("%s:Unsupported Parameter for Nan Publish\n", __FUNCTION__);
-            goto exit;
+           printMsg("%s:Unsupported Parameter for Nan Publish\n", __FUNCTION__);
+           goto exit;
         }
     }
     if (!msg.service_name_len) {
@@ -7853,6 +7096,13 @@ void subscribeNan(int argc, char *argv[]) {
     u32 val = 0;
     u8 *match_rxtmp = NULL, *match_txtmp = NULL;
 
+    /* skip utility */
+    argv++;
+    /* skip command */
+    argv++;
+    /* skip command */
+    argv++;
+
     memset(&msg, 0, sizeof(msg));
 
     /* set mandatory default values */
@@ -7868,13 +7118,6 @@ void subscribeNan(int argc, char *argv[]) {
     msg.rx_match_filter_len = 0;
     msg.tx_match_filter_len = 0;
     msg.period = 1;
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -8067,18 +7310,14 @@ void subscribeNan(int argc, char *argv[]) {
                 case NAN_CIPHER_SUITE_SHARED_KEY_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_256_MASK;
                     break;
+#ifdef NAN_3_1_SUPPORT
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK;
                     break;
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK;
                     break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
+#endif /* NAN_3_1_SUPPORT */
                 default:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_NONE;
                     break;
@@ -8123,8 +7362,7 @@ void subscribeNan(int argc, char *argv[]) {
                 (strlen((const char*)val_p));
                 if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
                     val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                        msg.key_info.body.passphrase_info.passphrase_len);
+                    printMsg("Set passphrase successfull, len = %d\n", msg.key_info.body.passphrase_info.passphrase_len);
                 } else {
                     printMsg("Invalid passphrase\n");
                     ret = WIFI_ERROR_INVALID_ARGS;
@@ -8202,29 +7440,6 @@ void subscribeNan(int argc, char *argv[]) {
                     printMsg("Set SDEA service specific info successfull\n");
                 }
             }
-        } else if (strcmp(param, "-suspendable") == 0) {
-            val = atoi(val_p);
-            if (val) {
-                msg.enable_suspendability = true;
-            }
-        } else if (strcmp(param, "-nik") == 0) {
-            int len = str2hex(val_p, (char*)msg.nan_identity_key);
-
-            if (len != NAN_IDENTITY_KEY_LEN) {
-                printMsg("Invalid local NIK info, len %d expected 16 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NIK", msg.nan_identity_key, NAN_IDENTITY_KEY_LEN);
-            }
-        } else if (strcmp(param, "-bs_methods") == 0) {
-            msg.nan_pairing_config.supported_bootstrapping_methods = atoi(val_p);
-        } else if (strcmp(param, "-pairing_setup") == 0) {
-            msg.nan_pairing_config.enable_pairing_setup = atoi(val_p);
-        } else if (strcmp(param, "-pairing_cache") == 0) {
-            msg.nan_pairing_config.enable_pairing_cache = atoi(val_p);
-        } else if (strcmp(param, "-pairing_verification") == 0) {
-            msg.nan_pairing_config.enable_pairing_verification = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for Nan Subscribe\n", __FUNCTION__);
             goto exit;
@@ -8301,94 +7516,6 @@ exit:
     return;
 }
 
-void nanSuspendRequest(char *argv[]) {
-    NanSuspendRequest msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL, *endptr = NULL;
-    u16 svc_id = 0;
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    if ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-svc_id") == 0) {
-            svc_id = strtoul(val_p, &endptr, 0);
-            msg.publish_subscribe_id = svc_id;
-        } else {
-            printMsg("%s:Unsupported Parameter for Nan Suspend Request\n", __FUNCTION__);
-            goto exit;
-        }
-    } else {
-        printMsg("%s: Additional -svc_id required for Nan Suspend Request\n", __FUNCTION__);
-        goto exit;
-    }
-
-    printMsg("nan Suspend svc_id %d \n", svc_id);
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = hal_fn.wifi_nan_suspend_request(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-void nanResumeRequest(char *argv[]) {
-    NanResumeRequest msg ;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL, *endptr = NULL;
-    u16 svc_id = 0;
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    if ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-svc_id") == 0) {
-            svc_id = strtoul(val_p, &endptr, 0);
-            msg.publish_subscribe_id = svc_id;
-        } else {
-            printMsg("%s:Unsupported Parameter for Nan Resume Request\n", __FUNCTION__);
-            goto exit;
-        }
-    } else {
-        printMsg("%s: Additional -svc_id required for Nan Resume Request\n", __FUNCTION__);
-        goto exit;
-    }
-
-    printMsg("nan Resume: svc_id %d \n", svc_id);
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = hal_fn.wifi_nan_resume_request(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
 void transmitNan(int argc, char *argv[]) {
     NanTransmitFollowupRequest msg;
     wifi_error ret = WIFI_SUCCESS;
@@ -8397,8 +7524,6 @@ void transmitNan(int argc, char *argv[]) {
     u32 dest_id = 0;
     u8 *mac_addr = NULL;
 
-    memset(&msg, 0, sizeof(msg));
-
     /* skip utility */
     argv++;
     /* skip command */
@@ -8406,6 +7531,7 @@ void transmitNan(int argc, char *argv[]) {
     /* skip command */
     argv++;
 
+    memset(&msg, 0, sizeof(msg));
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
         if (!val_p || *val_p == '-') {
@@ -8484,505 +7610,6 @@ exit:
     return;
 }
 
-void nanPairingRequest(int argc, char *argv[])
-{
-    NanPairingRequest msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL;
-    u32 pub_id = 0;
-    u8 *mac_addr = NULL;
-    u32 val = 0;
-    u32 len = 0;
-
-    memset(&msg, 0, sizeof(msg));
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    msg.is_opportunistic = 1;
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-pub_id") == 0) {
-            msg.requestor_instance_id = atoi(val_p);
-            pub_id = msg.requestor_instance_id;
-        } else if (strcmp(param, "-peer_addr") == 0) {
-            if (!ether_atoe(val_p, msg.peer_disc_mac_addr)) {
-                printMsg("bad peer mac addr !!\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-            mac_addr = msg.peer_disc_mac_addr;
-        } else if (strcmp(param, "-type") == 0) {
-            msg.nan_pairing_request_type = (NanPairingRequestType)atoi(val_p);
-            if ((msg.nan_pairing_request_type < NAN_PAIRING_SETUP) ||
-                    (msg.nan_pairing_request_type > NAN_PAIRING_VERIFICATION)) {
-                printMsg("Invalid type \n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-password") == 0) {
-            if (strlen((const char*)val_p) < NAN_SECURITY_MIN_PASSPHRASE_LEN ||
-                    strlen((const char*)val_p) > NAN_SECURITY_MAX_PASSPHRASE_LEN) {
-                printMsg("passphrase must be between %d and %d characters long\n",
-                        NAN_SECURITY_MIN_PASSPHRASE_LEN, NAN_SECURITY_MAX_PASSPHRASE_LEN);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.key_info.body.passphrase_info.passphrase_len = (strlen((const char*)val_p));
-                if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
-                        val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                            msg.key_info.body.passphrase_info.passphrase_len);
-                    msg.key_info.key_type = NAN_SECURITY_KEY_INPUT_PASSPHRASE;
-                    msg.is_opportunistic = 0;
-                } else {
-                    printMsg("Invalid passphrase\n");
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
-                }
-            }
-        } else if (strcmp(param, "-pmk") == 0) {
-            len = str2hex(val_p, (char*)msg.key_info.body.pmk_info.pmk);
-
-            if (len != NAN_PMK_INFO_LEN) {
-                printMsg("Invalid NPK info, len %d expected 32 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NPK successfull", msg.key_info.body.pmk_info.pmk, len);
-                msg.key_info.body.pmk_info.pmk_len = NAN_PMK_INFO_LEN;
-                msg.key_info.key_type = NAN_SECURITY_KEY_INPUT_PMK;
-                msg.is_opportunistic = 0;
-            }
-        } else if (strcmp(param, "-csid") == 0) {
-            val = atoi(val_p);
-            switch (val) {
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
-                default:
-                    printMsg("%s:Unsupported csid, only PASN csids are supported\n", __FUNCTION__);
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
-            }
-        } else if (strcmp(param, "-akm") == 0) {
-            msg.akm = (NanAkm)atoi(val_p);
-            if ((msg.akm < SAE) || (msg.akm > PASN)) {
-                printMsg("Invalid akm \n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-nik") == 0) {
-            len = str2hex(val_p, (char*)msg.nan_identity_key);
-
-            if (len != NAN_IDENTITY_KEY_LEN) {
-                printMsg("Invalid local NIK info, len %d expected 16 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NIK", msg.nan_identity_key, NAN_IDENTITY_KEY_LEN);
-            }
-        } else if (strcmp(param, "-pairing_cache") == 0) {
-            msg.enable_pairing_cache = atoi(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for nan pairing request \n", __FUNCTION__);
-            goto exit;
-        }
-    }
-
-    if (!pub_id) {
-        printMsg("Destination Instance Id is mandatory !!\n");
-        goto exit;
-    }
-    if (!mac_addr) {
-        printMsg("Peer MAC Address is mandatory !!\n");
-        goto exit;
-    }
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = nan_pairing_request(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-void nanPairingResponse(int argc, char *argv[])
-{
-    NanPairingIndicationResponse msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL;
-    u32 val = 0;
-    u32 len = 0;
-
-    memset(&msg, 0, sizeof(msg));
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    msg.is_opportunistic = 1;
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-pairing_id") == 0) {
-            msg.pairing_instance_id = atoi(val_p);
-        } else if (strcmp(param, "-rsp_code") == 0) {
-            msg.rsp_code = (NanPairingResponseCode)atoi(val_p);
-        } else if (strcmp(param, "-type") == 0) {
-            msg.nan_pairing_request_type = (NanPairingRequestType)atoi(val_p);
-            if ((msg.nan_pairing_request_type < NAN_PAIRING_SETUP) ||
-                    (msg.nan_pairing_request_type > NAN_PAIRING_VERIFICATION)) {
-                printMsg("Invalid type \n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-password") == 0) {
-            if (strlen((const char*)val_p) < NAN_SECURITY_MIN_PASSPHRASE_LEN ||
-                    strlen((const char*)val_p) > NAN_SECURITY_MAX_PASSPHRASE_LEN) {
-                printMsg("passphrase must be between %d and %d characters long\n",
-                        NAN_SECURITY_MIN_PASSPHRASE_LEN, NAN_SECURITY_MAX_PASSPHRASE_LEN);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.key_info.body.passphrase_info.passphrase_len = (strlen((const char*)val_p));
-                if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
-                        val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                            msg.key_info.body.passphrase_info.passphrase_len);
-                    msg.key_info.key_type = NAN_SECURITY_KEY_INPUT_PASSPHRASE;
-                    msg.is_opportunistic = 0;
-                } else {
-                    printMsg("Invalid passphrase\n");
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
-                }
-            }
-        } else if (strcmp(param, "-pmk") == 0) {
-            len = str2hex(val_p, (char*)msg.key_info.body.pmk_info.pmk);
-
-            if (len != NAN_PMK_INFO_LEN) {
-                printMsg("Invalid NPK info, len %d expected 32 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NPK successfull", msg.key_info.body.pmk_info.pmk, len);
-                msg.key_info.body.pmk_info.pmk_len = NAN_PMK_INFO_LEN;
-                msg.key_info.key_type = NAN_SECURITY_KEY_INPUT_PMK;
-                msg.is_opportunistic = 0;
-            }
-        } else if (strcmp(param, "-csid") == 0) {
-            val = atoi(val_p);
-            switch (val) {
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
-                default:
-                    printMsg("%s:Unsupported csid, only PASN csids are supported\n", __FUNCTION__);
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
-            }
-        } else if (strcmp(param, "-akm") == 0) {
-            msg.akm = (NanAkm)atoi(val_p);
-            if ((msg.akm < SAE) || (msg.akm > PASN)) {
-                printMsg("Invalid akm \n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-nik") == 0) {
-            int len = str2hex(val_p, (char*)msg.nan_identity_key);
-
-            if (len != NAN_IDENTITY_KEY_LEN) {
-                printMsg("Invalid local NIK info, len %d expected 16 bytes \n", len);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                prhex_msg("NIK", msg.nan_identity_key, NAN_IDENTITY_KEY_LEN);
-            }
-        } else if (strcmp(param, "-pairing_cache") == 0) {
-            msg.enable_pairing_cache = atoi(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for nan pairing response \n", __FUNCTION__);
-            goto exit;
-        }
-    }
-
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = nan_pairing_indication_response(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-void nanPairingEnd(int argc, char *argv[])
-{
-    NanPairingEndRequest msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL;
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-pid") == 0) {
-            msg.pairing_instance_id = atoi(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for Pairing End Request\n", __FUNCTION__);
-            goto exit;
-        }
-    }
-
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = nan_pairing_end(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-void nanBootstrappingReq(int argc, char *argv[])
-{
-    NanBootstrappingRequest msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL;
-    u32 dest_id = 0, lcl_id = 0;
-
-    memset(&msg, 0, sizeof(msg));
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-dest_id") == 0) {
-            msg.requestor_instance_id = atoi(val_p);
-            dest_id = msg.requestor_instance_id;
-        } else if (strcmp(param, "-lcl_id") == 0) {
-            msg.publish_subscribe_id = atoi(val_p);
-            lcl_id = msg.publish_subscribe_id;
-        } else if (strcmp(param, "-peer_addr") == 0) {
-            if (!ether_atoe(val_p, msg.peer_disc_mac_addr)) {
-                printMsg("bad peer mac addr !!\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-bs_methods") == 0) {
-            msg.request_bootstrapping_method = atoi(val_p);
-        } else if (strcmp(param, "-sdea_info") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
-                printMsg("Invalid SDEA service specific info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.sdea_service_specific_info_len = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.sdea_service_specific_info,
-                    val_p, msg.sdea_service_specific_info_len)) {
-                        printMsg("Set SDEA service specific info successfull\n");
-                }
-            }
-        } else if (strcmp(param, "-info") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_SERVICE_SPECIFIC_INFO_LEN) {
-                printMsg("Invalid  service specific info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.service_specific_info_len = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.service_specific_info,
-                    val_p, msg.service_specific_info_len)) {
-                    printMsg("Set service specific info successfull\n");
-                }
-            }
-        } else if (strcmp(param, "-cookie") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_COOKIE_LEN) {
-                printMsg("Invalid cookie info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.cookie_length = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.cookie, val_p, msg.cookie_length)) {
-                    printMsg("Set cookie info successfull\n");
-                }
-            }
-        } else {
-            printMsg("%s:Unsupported Parameter for nan bootstrapping request \n", __FUNCTION__);
-            goto exit;
-        }
-    }
-
-    if (!dest_id) {
-        printMsg("Destination Instance Id is mandatory !!\n");
-        goto exit;
-    }
-    if (!lcl_id) {
-        printMsg("Local Instance Id is mandatory !!\n");
-        goto exit;
-    }
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = nan_bootstrapping_request(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-void nanBootstrappingResp(int argc, char *argv[])
-{
-    NanBootstrappingIndicationResponse msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param = NULL, *val_p = NULL;
-    u32 dest_id = 0, lcl_id = 0;
-
-    memset(&msg, 0, sizeof(msg));
-
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-dest_id") == 0) {
-            msg.service_instance_id = atoi(val_p);
-            dest_id = msg.service_instance_id;
-        } else if (strcmp(param, "-lcl_id") == 0) {
-            msg.publish_subscribe_id = atoi(val_p);
-            lcl_id = msg.publish_subscribe_id;
-        } else if (strcmp(param, "-peer_addr") == 0) {
-            if (!ether_atoe(val_p, msg.peer_disc_mac_addr)) {
-                printMsg("bad peer mac addr !!\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-        } else if (strcmp(param, "-rsp_code") == 0) {
-            msg.rsp_code = (NanBootstrappingResponseCode)atoi(val_p);
-        } else if (strcmp(param, "-comeback_delay") == 0) {
-            msg.come_back_delay = atoi(val_p);
-        } else if (strcmp(param, "-sdea_info") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
-                printMsg("Invalid SDEA service specific info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.sdea_service_specific_info_len = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.sdea_service_specific_info,
-                    val_p, msg.sdea_service_specific_info_len)) {
-                        printMsg("Set SDEA service specific info successfull\n");
-                }
-            }
-        } else if (strcmp(param, "-info") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_SERVICE_SPECIFIC_INFO_LEN) {
-                printMsg("Invalid  service specific info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.service_specific_info_len = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.service_specific_info,
-                    val_p, msg.service_specific_info_len)) {
-                    printMsg("Set service specific info successfull\n");
-                }
-            }
-        } else if (strcmp(param, "-cookie") == 0) {
-            if (strlen((const char*)val_p) > NAN_MAX_COOKIE_LEN) {
-                printMsg("Invalid cookie info\n");
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            } else {
-                msg.cookie_length = strlen((const char*)val_p);
-                if (!set_interface_params((char*)msg.cookie, val_p, msg.cookie_length)) {
-                    printMsg("Set cookie info successfull\n");
-                }
-            }
-        } else {
-            printMsg("%s:Unsupported Parameter for nan bootstrapping response  %s \n", __FUNCTION__, param);
-            goto exit;
-        }
-    }
-
-    if (!dest_id) {
-        printMsg("Destination Instance Id is mandatory !!\n");
-        goto exit;
-    }
-    if (!lcl_id) {
-        printMsg("Local Instance Id is mandatory !!\n");
-        goto exit;
-    }
-    nanCmdId = getNewCmdId();
-    ret = nan_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize handlers %d\n", ret);
-        goto exit;
-    }
-    ret = nan_bootstrapping_indication_response(nanCmdId, wlan0Handle, &msg);
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
 void getNanCapabilities(void) {
     nanCmdId = getNewCmdId();
     wifi_error ret = nan_init_handlers();
@@ -8996,17 +7623,14 @@ void getNanCapabilities(void) {
 void nanDataPathIfaceCreate(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
-    /* Interface name */
-    char ndp_iface[IFNAMSIZ+1];
-
-    memset(ndp_iface, 0, sizeof(ndp_iface));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char ndp_iface[IFNAMSIZ+1];
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -9044,17 +7668,14 @@ exit:
 void nanDataPathIfaceDelete(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
-    /* Interface name */
-    char ndp_iface[IFNAMSIZ+1];
-
-    memset(ndp_iface, 0, sizeof(ndp_iface));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char ndp_iface[IFNAMSIZ+1];
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -9089,22 +7710,22 @@ exit:
     return;
 }
 
+
 void nanDataInitRequest(int argc, char *argv[]) {
     NanDataPathInitiatorRequest msg;
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
     u32 val = 0;
-
-    memset(&msg, 0, sizeof(msg));
-    msg.ndp_cfg.security_cfg = NAN_DP_CONFIG_NO_SECURITY;
-    msg.ndp_cfg.qos_cfg = NAN_DP_CONFIG_NO_QOS;
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
     /* skip command */
     argv++;
+
+    memset(&msg, 0, sizeof(msg));
+    msg.ndp_cfg.security_cfg = NAN_DP_CONFIG_NO_SECURITY;
+    msg.ndp_cfg.qos_cfg = NAN_DP_CONFIG_NO_QOS;
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -9192,18 +7813,14 @@ void nanDataInitRequest(int argc, char *argv[]) {
                 case NAN_CIPHER_SUITE_SHARED_KEY_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_256_MASK;
                     break;
+#ifdef NAN_3_1_SUPPORT
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK;
                     break;
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK;
                     break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
+#endif /* NAN_3_1_SUPPORT */
                 default:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_NONE;
                     break;
@@ -9248,14 +7865,14 @@ void nanDataInitRequest(int argc, char *argv[]) {
                 (strlen((const char*)val_p));
                 if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
                     val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                        msg.key_info.body.passphrase_info.passphrase_len);
+                    printMsg("Set passphrase successfull, len = %d\n", msg.key_info.body.passphrase_info.passphrase_len);
                 } else {
                     printMsg("Invalid passphrase\n");
                     ret = WIFI_ERROR_INVALID_ARGS;
                     goto exit;
                 }
             }
+#ifdef NAN_3_1_SUPPORT
         } else if (strcmp(param, "-scid") == 0) {
             if (strlen((const char*)val_p) > NAN_MAX_SCID_BUF_LEN) {
                 printMsg("Invalid SCID\n");
@@ -9269,6 +7886,7 @@ void nanDataInitRequest(int argc, char *argv[]) {
                     printMsg("Set SCID successfull\n");
                 }
             }
+#endif /* NAN_3_1_SUPPORT */
         } else if (strcmp(param, "-svc") == 0) {
             if (strlen((const char *)val_p) > NAN_MAX_SERVICE_NAME_LEN) {
                 printMsg("Invalid service name\n");
@@ -9282,8 +7900,6 @@ void nanDataInitRequest(int argc, char *argv[]) {
                     printMsg("Set service name successfull\n");
                 }
             }
-        } else if (strcmp(param, "-lcl_svc_id") == 0) {
-            msg.publish_subscribe_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for Nan Data Path Request\n", __FUNCTION__);
             goto exit;
@@ -9307,11 +7923,6 @@ void nanDataIndResponse(int argc, char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
     u32 val = 0;
-
-    memset(&msg, 0, sizeof(msg));
-    msg.ndp_cfg.security_cfg = NAN_DP_CONFIG_NO_SECURITY;
-    msg.ndp_cfg.qos_cfg = NAN_DP_CONFIG_NO_QOS;
-
     /* skip utility */
     argv++;
     /* skip command */
@@ -9319,6 +7930,9 @@ void nanDataIndResponse(int argc, char *argv[]) {
     /* skip command */
     argv++;
 
+    memset(&msg, 0, sizeof(msg));
+    msg.ndp_cfg.security_cfg = NAN_DP_CONFIG_NO_SECURITY;
+    msg.ndp_cfg.qos_cfg = NAN_DP_CONFIG_NO_QOS;
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
         if (!val_p || *val_p == '-') {
@@ -9395,18 +8009,14 @@ void nanDataIndResponse(int argc, char *argv[]) {
                 case NAN_CIPHER_SUITE_SHARED_KEY_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_256_MASK;
                     break;
+#ifdef NAN_3_1_SUPPORT
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_128_MASK;
                     break;
                 case NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK:
                     msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_2WDH_256_MASK;
                     break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK;
-                    break;
-                case NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK:
-                    msg.cipher_type = NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK;
-                    break;
+#endif /* NAN_3_1_SUPPORT */
                 default:
                     msg.cipher_type = NAN_CIPHER_SUITE_SHARED_KEY_NONE;
                     break;
@@ -9451,14 +8061,14 @@ void nanDataIndResponse(int argc, char *argv[]) {
                     (strlen((const char*)val_p));
                 if (!set_interface_params((char*)msg.key_info.body.passphrase_info.passphrase,
                     val_p, msg.key_info.body.passphrase_info.passphrase_len)) {
-                    printMsg("Set passphrase successfull, len = %d\n",
-                        msg.key_info.body.passphrase_info.passphrase_len);
+                    printMsg("Set passphrase successfull, len = %d\n", msg.key_info.body.passphrase_info.passphrase_len);
                 } else {
                     printMsg("Invalid passphrase\n");
                     ret = WIFI_ERROR_INVALID_ARGS;
                     goto exit;
                 }
             }
+#ifdef NAN_3_1_SUPPORT
         } else if (strcmp(param, "-scid") == 0) {
             if (strlen((const char*)val_p) > NAN_MAX_SCID_BUF_LEN) {
                 printMsg("Invalid SCID\n");
@@ -9470,6 +8080,7 @@ void nanDataIndResponse(int argc, char *argv[]) {
                     printMsg("Set SCID successfull\n");
                 }
             }
+#endif /* NAN_3_1_SUPPORT */
         } else if (strcmp(param, "-svc") == 0) {
             if (strlen((const char *)val_p) > NAN_MAX_SERVICE_NAME_LEN) {
                 printMsg("Invalid service name\n");
@@ -9483,8 +8094,6 @@ void nanDataIndResponse(int argc, char *argv[]) {
                     printMsg("Set service name successfull\n");
                 }
             }
-        } else if (strcmp(param, "-lcl_svc_id") == 0) {
-            msg.publish_subscribe_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for Nan Data Path Request\n", __FUNCTION__);
             goto exit;
@@ -9508,7 +8117,6 @@ void nanDataPathEnd(int argc, char *argv[]) {
     char *param = NULL, *val_p = NULL, *endptr = NULL;
     u8 count = 0, i = 0;
     NanDataPathId ndp_id = 0;
-
     /* skip utility */
     argv++;
     /* skip command */
@@ -9570,27 +8178,23 @@ exit:
 void VirtualIfaceAdd(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    wifi_interface_type iface_type = WIFI_INTERFACE_TYPE_STA;
-    bool set_iface = false;
-
-    memset(iface_name, 0, sizeof(iface_name));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char iface_name[IFNAMSIZ+1];
+    wifi_interface_type iface_type;
 
     while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-name") == 0) {
-            if (!set_interface_params(iface_name, val_p, (IFNAMSIZ - 1))) {
+    val_p = *argv++;
+    if (!val_p || *val_p == '-') {
+        printMsg("%s: Need value following %s\n", __FUNCTION__, param);
+        ret = WIFI_ERROR_NOT_SUPPORTED;
+        goto exit;
+    }
+    if (strcmp(param, "-name") == 0) {
+        if (!set_interface_params(iface_name, val_p, (IFNAMSIZ - 1))) {
                 printMsg("set interface name successfull\n");
             } else {
                 printMsg("Invalid Iface name\n");
@@ -9599,16 +8203,10 @@ void VirtualIfaceAdd(char *argv[]) {
             }
         } else if (strcmp(param, "-type") == 0) {
             iface_type = (wifi_interface_type)atoi(val_p);
-            set_iface = true;
         } else {
             printMsg("Unsupported Parameter for virtual iface delete\n");
             goto exit;
         }
-    }
-
-    if (!set_iface) {
-        printMsg("Error, Mandatory iface type is not set\n");
-        goto exit;
     }
 
     ret = hal_fn.wifi_virtual_interface_create(halHandle, iface_name, iface_type);
@@ -9626,14 +8224,12 @@ exit:
 void VirtualIfaceDelete(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL, *val_p = NULL;
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    memset(iface_name, 0, sizeof(iface_name));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char iface_name[IFNAMSIZ+1];
 
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
@@ -9671,16 +8267,13 @@ static void
 MultiStaSetPrimaryConnection(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL;
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    wifi_interface_handle ifHandle = NULL;
-
-    memset(iface_name, 0, sizeof(iface_name));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char iface_name[IFNAMSIZ+1];
+    wifi_interface_handle ifHandle = NULL;
 
     while ((param = *argv++) != NULL) {
         if (!set_interface_params(iface_name, param, (IFNAMSIZ - 1))) {
@@ -9711,7 +8304,7 @@ exit:
 static void
 MultiStaSetUsecase(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
-    uint use_case = 0;
+    uint use_case;
     wifi_multi_sta_use_case mMultiStaUsecase;
 
     /* skip utility */
@@ -9720,8 +8313,8 @@ MultiStaSetUsecase(char *argv[]) {
     argv++;
 
     use_case = (uint)atoi(*argv);
-    if ((use_case == WIFI_DUAL_STA_TRANSIENT_PREFER_PRIMARY) ||
-        (use_case == WIFI_DUAL_STA_NON_TRANSIENT_UNBIASED)) {
+    if (use_case >= WIFI_DUAL_STA_TRANSIENT_PREFER_PRIMARY &&
+        use_case <= WIFI_DUAL_STA_NON_TRANSIENT_UNBIASED) {
         mMultiStaUsecase = (wifi_multi_sta_use_case)use_case;
     } else {
         printMsg("Invalid  multi_sta usecase\n");
@@ -9744,16 +8337,13 @@ static void
 SetLatencyMode(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL;
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    wifi_interface_handle ifHandle = NULL;
-
-    memset(iface_name, 0, sizeof(iface_name));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char iface_name[IFNAMSIZ+1];
+    wifi_interface_handle ifHandle = NULL;
 
     param = *argv++;
     if (param != NULL) {
@@ -9764,10 +8354,6 @@ SetLatencyMode(char *argv[]) {
             ret = WIFI_ERROR_INVALID_ARGS;
             goto exit;
         }
-    } else {
-        printMsg("argv is null\n");
-        ret = WIFI_ERROR_INVALID_ARGS;
-        goto exit;
     }
 
     ifHandle = wifi_get_iface_handle(halHandle, iface_name);
@@ -9793,16 +8379,13 @@ static void
 SetVoipMode(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param = NULL;
-    /* Interface name */
-    char iface_name[IFNAMSIZ+1];
-    wifi_interface_handle ifHandle = NULL;
-
-    memset(iface_name, 0, sizeof(iface_name));
-
     /* skip utility */
     argv++;
     /* skip command */
     argv++;
+    /* Interface name */
+    char iface_name[IFNAMSIZ+1];
+    wifi_interface_handle ifHandle = NULL;
 
     param = *argv++;
     if (param != NULL) {
@@ -9813,10 +8396,6 @@ SetVoipMode(char *argv[]) {
             ret = WIFI_ERROR_INVALID_ARGS;
             goto exit;
         }
-    } else {
-        printMsg("argv is null\n");
-        ret = WIFI_ERROR_INVALID_ARGS;
-        goto exit;
     }
 
     ifHandle = wifi_get_iface_handle(halHandle, iface_name);
@@ -9872,7 +8451,7 @@ int main(int argc, char *argv[]) {
         if ((strcmp(argv[2], "-enable") == 0)) {
             enableNan(argv);
         } else if ((strcmp(argv[2], "-disable") == 0)) {
-            disableNan(argv);
+            disableNan();
         } else if ((strcmp(argv[2], "-config") == 0)) {
             configNan(argv);
         } else if ((strcmp(argv[2], "-publish") == 0)) {
@@ -9881,26 +8460,17 @@ int main(int argc, char *argv[]) {
                     "    [-pub_type <0/1/2>] [-pub_count <val>] [-rssi_thresh_flag <0/1>]\n"
                     "    [-tx_type <0/1>] [-ttl <val>] [-svc_awake_dw <val>]\n"
                     "    [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]] [-match_ind <1/2>]\n"
-                    "    [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>]"
-                    "    [-pmk <PMK value>] [-passphrase <Passphrase value, len must "
-                    "    not be less than 8 or greater than 63>] [-scid <scid value>]"
-                    "    [-dp_type <0-Unicast, 1-multicast>]\n"
-                    "    [-secure_dp <0-No security, 1-Security>]"
-                    "    -ranging <0-disable, 1-enable>)\n"
-                    "    [-ranging_intvl [intrvl in ms betw"
-                    "    two ranging measurements] -ranging_ind [ BIT0 -"
-                    "    Continuous Ranging event notification,"
-                    "    BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
+                    "    [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>] [-pmk <PMK value>]\n"
+                    "    [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
+                    "    [-scid <scid value>] [-dp_type <0-Unicast, 1-multicast>]\n"
+                    "    [-secure_dp <0-No security, 1-Security>] -ranging <0-disable, 1-enable>)\n"
+                    "    [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
+                    "    [ BIT0 - Continuous Ranging event notification, BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
                     "    [-ingress [Ingress distance in centimeters] \n"
                     "    [ -egress [Egress distance in centimeters] \n"
-                    "    [-auto_dp_accept [0 - User response required to accept dp,"
-                    "    1 - User response not required to accept dp] \n"
-                    "    [-recv_flag <0 to 15>] [-suspendable <0/1>] \n"
-                    "    [-bs_methods <supported bootstrapping methods]>\n"
-                    "    [-pairing_setup <supported 0/1>] [-pairing_cache <supported 0/1]"
-                    "    [-pairing_verification <supported 0/1>] [-nik <local nik of 16 char>]\n");
-                printMsg("\n *Set/Enable corresponding bits to disable any"
-                    "    indications that follow a publish"
+                    "    [-auto_dp_accept [0 - User response required to accept dp, 1 - User response not required to accept dp] \n"
+                    "    [-recv_flag <0 to 15>]");
+                printMsg("\n *Set/Enable corresponding bits to disable any indications that follow a publish"
                     "\n *BIT0 - Disable publish termination indication."
                     "\n *BIT1 - Disable match expired indication."
                     "\n *BIT2 - Disable followUp indication received (OTA)");
@@ -9914,22 +8484,16 @@ int main(int argc, char *argv[]) {
                     "    [-ttl <val>] [-svc_awake_dw <val>] [-match_ind <1/2>]\n"
                     "    [-match_rx <0/ascii str>] [-match_tx <0/ascii str>]\n"
                     "    [-mac_list <addr>] [-srf_include <0/1>] [-rssi_thresh_flag <0/1>]]\n"
-                    "    [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>]"
-                    "    [-pmk <PMK value>] [-passphrase <Passphrase value,"
-                    "    len must not be less than 8 or greater than 63>]\n"
+                    "    [-csid <cipher suite type 0/1/2/4/8>] [-key_type <1 or 2>]  [-pmk <PMK value>]\n"
+                    "    [-passphrase <Passphrase value, len must not be less than 8 or greater than 63>]\n"
                     "    [-scid <scid value>] [-dp_type <0-Unicast, 1-multicast>]\n"
                     "    [-secure_dp <0-No security, 1-Security>] -ranging <0-disable, 1-enable>)\n"
                     "    [-ranging_intvl [intrvl in ms betw two ranging measurements] -ranging_ind \n"
-                    "    [BIT0 - Continuous Ranging event notification,"
-                    "    BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
+                    "    [BIT0 - Continuous Ranging event notification, BIT1 - Ingress distance is <=, BIT2 - Egress distance is >=.]\n"
                     "    [-ingress [Ingress distance in centimeters] \n"
                     "    [ -egress [Egress distance in centimeters] \n"
-                    "    [-recv_flag <0 to 7>] [-suspendable <0/1>] \n"
-                    "    [-bs_methods <supported bootstrapping methods]>\n"
-                    "    [-pairing_setup <supported 0/1>] [-pairing_cache <supported 0/1]"
-                    "    [-pairing_verification <supported 0/1>]  [-nik <local nik of 16 char>]\n");
-                printMsg("\n *Set/Enable corresponding bits to disable any indications that"
-                    "    follow a publish"
+                    "    [-recv_flag <0 to 7>]");
+                printMsg("\n *Set/Enable corresponding bits to disable any indications that follow a publish"
                     "\n *BIT0 - Disable publish termination indication."
                     "\n *BIT1 - Disable match expired indication."
                     "\n *BIT2 - Disable followUp indication received (OTA)");
@@ -9979,7 +8543,7 @@ int main(int argc, char *argv[]) {
                     "    [-chan <channel in mhz>] [-iface <iface>] [-sec <security>]\n"
                     "    [-qos <qos>] [-info <seq of values in the frame body>]\n"
                     "    [-csid <cipher suite type 0/1/2/4/8>]\n"
-                    "    [-scid <scid value>] [-svc <svc_name>] [-lcl_svc_id <service id>] \n");
+                    "    [-scid <scid value>] [-svc <svc_name>]\n");
                 goto cleanup;
             }
             nanDataInitRequest(argc, argv);
@@ -9990,22 +8554,10 @@ int main(int argc, char *argv[]) {
                     "    [-resp_code <accept = 0, accept = 1>] [-qos <qos>]\n"
                     "    [-info <seq of values in the frame body>]\n"
                     "    [-csid <cipher suite type 0/1/2/4/8>]\n"
-                    "    [-scid <scid value>] [-svc <svc_name>] [-lcl_svc_id <service id>] \n");
+                    "    [-scid <scid value>] [-svc <svc_name>] \n");
                 goto cleanup;
             }
             nanDataIndResponse(argc, argv);
-        } else if ((strcmp(argv[2], "-suspend") == 0)) {
-            if(argc < 3) {
-                printMsg(" -nan [-suspend] -svc_id [service_id]\n");
-                goto cleanup;
-            }
-            nanSuspendRequest(argv);
-        } else if ((strcmp(argv[2], "-resume") == 0)) {
-            if(argc < 3) {
-                printMsg(" -nan [-resume] -svc_id [service_id]\n");
-                goto cleanup;
-            }
-            nanResumeRequest(argv);
         } else if ((strcmp(argv[2], "-end") == 0)) {
             if(argc < 3) {
                 printMsg("\n Mandatory fields are not present\n");
@@ -10013,55 +8565,6 @@ int main(int argc, char *argv[]) {
                 goto cleanup;
             }
             nanDataPathEnd(argc, argv);
-        } else if ((strcmp(argv[2], "-pairing_req") == 0)) {
-            if (argc < 5) {
-                printf(" -nan [-pairing_req] -pub_id <instance id>\n"
-                    "  -type <0-setup, 1-verification> -peer_addr <mac addr>\n"
-                    "  -password <password> -csid <cipher suite> [-akm <0-SAE, 1-PASN] \n"
-                    "  [-nik <local nik>] [-pairing_cache <1-Enable , 0-Disable pairing cache>]\n"
-                    "  [-pmk <32 byte PMK value>]\n");
-                printMsg("\n Mandatory fields are not present\n");
-                goto cleanup;
-            }
-            nanPairingRequest(argc, argv);
-        } else if ((strcmp(argv[2], "-pairing_resp") == 0)) {
-            if (argc < 5) {
-                printf(" -nan [-pairing_resp] [-pairing_id <pairing instance id>]\n"
-                    "     [-rsp_code <0-ACCEPT,1-REJECT>] [-type <0-setup, 1-verification>]\n"
-                    "     [-password <password>] [-csid <cipher suite>] [-akm <0-SAE, 1-PASN] \n"
-                    "     [-nik <local nik>] [-pairing_cache <1-Enable, 0-Disable pairing cache>]\n"
-                    "     [-pmk <32 byte PMK value>]\n");
-                printMsg("\n Mandatory fields are not present\n");
-                goto cleanup;
-            }
-            nanPairingResponse(argc, argv);
-        } else if ((strcmp(argv[2], "-pairing_end") == 0)) {
-            if (argc < 3) {
-                printMsg("\n Mandatory fields are not present\n");
-                printf(" -nan [-pairing_end] -pairing_id <pairing_instance_id>\n");
-                goto cleanup;
-            }
-            nanPairingEnd(argc, argv);
-        } else if ((strcmp(argv[2], "-bs_req") == 0)) {
-            if (argc < 5) {
-                printf(" -nan [-bs_req] -dest_id <peer inst id> -lcl_id <local inst id>\n"
-                   "     -peer_addr <mac addr> -bs_methods <supported bootstrapping methiods>\n"
-                   "     [-comeback <is it comeback BS req>] [-sdea_info <sdea svc info>]\n"
-                   "     [-cookie <cookie info>] [-info <svc info>]\n");
-                printMsg("\n Mandatory fields are not present\n");
-                goto cleanup;
-            }
-            nanBootstrappingReq(argc, argv);
-        } else if ((strcmp(argv[2], "-bs_resp") == 0)) {
-            if (argc < 5) {
-                printf(" -nan [-bs_resp] dest_id <peer inst id> -lcl_id <local inst id> \n"
-                   "     -peer_addr <mac addr> -rsp_code <0-ACCEPT, 1-REJECT, 2- COMEBACK>\n"
-                   "     [-comeback_delay] [-cookie <cookie info>] [-info <svc info>] \n"
-                   "     [-sdea_info <sdea svcinfo>]\n");
-                printMsg("\n Mandatory fields are not present\n");
-                goto cleanup;
-            }
-            nanBootstrappingResp(argc, argv);
         } else if ((strcmp(argv[2], "-event_chk") == 0)) {
             nanEventCheck();
         } else if ((strcmp(argv[2], "-ver") == 0)) {
@@ -10164,7 +8667,7 @@ int main(int argc, char *argv[]) {
             setBlacklist(((num_blacklist_bssids == -1) ? true: false));
         }
     } else if ((strcmp(argv[1], "-get_roaming_capabilities") == 0)) {
-        getRoamingCapabilities(argv);
+        getRoamingCapabilities();
     } else if ((strcmp(argv[1], "-set_fw_roaming_state") == 0)) {
         fw_roaming_state_t roamState = (fw_roaming_state_t)(atoi)(argv[2]);
         setFWRoamingState(roamState);
@@ -10243,7 +8746,7 @@ int main(int argc, char *argv[]) {
             return WIFI_SUCCESS;
         }
     } else if (strcmp(argv[1], "-get_capa_twt") == 0) {
-        getTWTCapability(argv);
+        getTWTCapability();
     } else if ((strcmp(argv[1], "-dtim_multiplier") == 0) && (argc > 2)) {
         int dtim_multiplier = (atoi)(argv[2]);
         hal_fn.wifi_set_dtim_config(wlan0Handle, dtim_multiplier);

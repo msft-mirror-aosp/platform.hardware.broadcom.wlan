@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2024 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -195,23 +195,6 @@ typedef enum {
     OTA_DOWNLOAD_TXCAP_BLOB_ATTR           = 0x0008,
 } OTA_DOWNLOAD_ATTRIBUTE;
 
-#define C2S(x)  case x: return #x;
-static const char *DebugDumpToString(int mType);
-static const char *DebugDumpToString(int mType)
-{
-    switch (mType) {
-        C2S(GET_FW_VER)
-        C2S(GET_DRV_VER)
-        C2S(GET_RING_DATA)
-        C2S(GET_RING_STATUS)
-        C2S(GET_FEATURE)
-        C2S(START_RING_LOG)
-        C2S(GET_BUF_RING_MAP)
-        default:
-            return "DUMP_TYPE_INVALID";
-    }
-}
-
 #define HAL_START_REQUEST_ID 2
 #define HAL_RESTART_ID 3
 #define FILE_NAME_LEN 256
@@ -221,7 +204,7 @@ static const char *DebugDumpToString(int mType)
 #define DUMP_DEBUG(x)
 #define DUMP_INFO(x) ALOGI x
 #define FILE_DUMP_REQUEST_ID 2
-
+#define C2S(x)  case x: return #x;
 static const char *EWP_EventAttrToString(int len_attr);
 static const char *EWP_CmdAttrToString(int data_attr);
 
@@ -280,9 +263,8 @@ typedef enum {
     DUMP_LEN_ATTR_EWP_HW_INIT_LOG               = 42,
     DUMP_LEN_ATTR_EWP_HW_MOD_DUMP               = 43,
     DUMP_LEN_ATTR_EWP_HW_REG_DUMP               = 44,
-    DUMP_LEN_ATTR_WRAPPER_REG_DUMP              = 45,
     /*  Please add new attributes from here to sync up old DHD */
-    DUMP_EVENT_ATTR_MAX                         = 46,
+    DUMP_EVENT_ATTR_MAX                         = 45,
 } EWP_DUMP_EVENT_ATTRIBUTE;
 
 /* Attributes associated with DEBUG_GET_DUMP_BUF */
@@ -318,9 +300,8 @@ typedef enum {
     DUMP_BUF_ATTR_EWP_HW_INIT_LOG       = 28,
     DUMP_BUF_ATTR_EWP_HW_MOD_DUMP       = 29,
     DUMP_BUF_ATTR_EWP_HW_REG_DUMP       = 30,
-    DUMP_BUF_ATTR_WRAPPER_REG_DUMP      = 31,
     /*  Please add new attributes from here to sync up old DHD */
-    DUMP_BUF_ATTR_MAX                   = 32,
+    DUMP_BUF_ATTR_MAX		        = 31,
 } EWP_DUMP_CMD_ATTRIBUTE;
 
 typedef enum {
@@ -398,7 +379,6 @@ logger_attr_entry_t attr_lookup_tbl[] = {
     {DUMP_LEN_ATTR_EWP_HW_INIT_LOG, DUMP_BUF_ATTR_EWP_HW_INIT_LOG, DUMP_TYPE_DEBUG_DUMP},
     {DUMP_LEN_ATTR_EWP_HW_MOD_DUMP, DUMP_BUF_ATTR_EWP_HW_MOD_DUMP, DUMP_TYPE_DEBUG_DUMP},
     {DUMP_LEN_ATTR_EWP_HW_REG_DUMP, DUMP_BUF_ATTR_EWP_HW_REG_DUMP, DUMP_TYPE_DEBUG_DUMP},
-    {DUMP_LEN_ATTR_WRAPPER_REG_DUMP, DUMP_BUF_ATTR_WRAPPER_REG_DUMP, DUMP_TYPE_DEBUG_DUMP},
 
     /* PKT log dump block */
     {DUMP_FILENAME_ATTR_PKTLOG_DUMP, 0, DUMP_TYPE_PKTLOG_DUMP},
@@ -461,7 +441,6 @@ static const char *EWP_EventAttrToString(int len_attr)
         C2S(DUMP_LEN_ATTR_EWP_HW_INIT_LOG)
         C2S(DUMP_LEN_ATTR_EWP_HW_MOD_DUMP)
         C2S(DUMP_LEN_ATTR_EWP_HW_REG_DUMP)
-        C2S(DUMP_LEN_ATTR_WRAPPER_REG_DUMP)
         default:
             return "DUMP_LEN_ATTR_INVALID";
     }
@@ -500,7 +479,6 @@ static const char *EWP_CmdAttrToString(int attr)
         C2S(DUMP_BUF_ATTR_EWP_HW_INIT_LOG)
         C2S(DUMP_BUF_ATTR_EWP_HW_MOD_DUMP)
         C2S(DUMP_BUF_ATTR_EWP_HW_REG_DUMP)
-        C2S(DUMP_BUF_ATTR_WRAPPER_REG_DUMP)
         default:
             return "DUMP_BUF_ATTR_INVALID";
     }
@@ -612,8 +590,6 @@ public:
         mMinDataSize = 0;
         mRingName = NULL;
         memset(mBuff, 0, *mBuffSize);
-        mNumMaps = NULL;
-        mMaps = NULL;
     }
 
     // constructor for ring data
@@ -629,8 +605,6 @@ public:
         mFlags = 0;
         mMaxIntervalSec = 0;
         mMinDataSize = 0;
-        mNumMaps = NULL;
-        mMaps = NULL;
     }
 
     // constructor for ring status
@@ -647,8 +621,6 @@ public:
         mMinDataSize = 0;
         mRingName = NULL;
         memset(mStatus, 0, sizeof(wifi_ring_buffer_status) * (*mNumRings));
-        mNumMaps = NULL;
-        mMaps = NULL;
     }
 
     // constructor for feature set
@@ -664,8 +636,6 @@ public:
         mMaxIntervalSec = 0;
         mMinDataSize = 0;
         mRingName = NULL;
-        mMaps = NULL;
-        mNumMaps = NULL;
     }
 
     // constructor for buf ring map
@@ -674,16 +644,6 @@ public:
         : WifiCommand("DebugCommand", iface, 0), mNumMaps(num_maps), mMaps(map), mType(cmdType)
     {
         memset(mMaps, 0, sizeof(wifi_buf_ring_map_entry_t) * (*mNumMaps));
-        mBuff = NULL;
-        mBuffSize = NULL;
-        mNumRings =  NULL;
-        mStatus = NULL;
-        mVerboseLevel = 0;
-        mFlags = 0;
-        mMaxIntervalSec = 0;
-        mMinDataSize = 0;
-        mRingName = NULL;
-        mSupport = NULL;
     }
 
     // constructor for ring params
@@ -698,8 +658,6 @@ public:
         mNumRings =  NULL;
         mStatus = NULL;
         mSupport = NULL;
-        mMaps = NULL;
-        mNumMaps = NULL;
     }
 
     int createRingRequest(WifiRequest& request) {
@@ -744,7 +702,6 @@ public:
     int createRequest(WifiRequest &request) {
         int result;
 
-        ALOGI("CreateRequest mType = %s", DebugDumpToString(mType));
         switch (mType) {
             case GET_FW_VER:
             {
@@ -803,7 +760,6 @@ public:
                     ALOGE("Failed to put ring data request; result = %d", result);
                     return result;
                 }
-                ALOGI("Success to put ring data request for RingName %s", mRingName);
                 request.attr_end(data);
                 break;
             }
@@ -850,7 +806,7 @@ public:
     }
 
     int start() {
-        ALOGD("Start debug command: mType %s", DebugDumpToString(mType));
+        ALOGD("Start debug command");
         WifiRequest request(familyId(), ifaceId());
         int result = createRequest(request);
         if (result != WIFI_SUCCESS) {
@@ -866,7 +822,7 @@ public:
     }
 
     virtual int handleResponse(WifiEvent& reply) {
-        ALOGD("In DebugCommand::handleResponse, mType:%s\n", DebugDumpToString(mType));
+        ALOGD("In DebugCommand::handleResponse, mType:%d\n", mType);
 
         if (reply.get_cmd() != NL80211_CMD_VENDOR) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
@@ -1634,7 +1590,7 @@ class HalInit : public WifiCommand
             ALOGE("Failed to register set hal start response; result = %d", result);
         }
         wifi_unregister_cmd(wifiHandle(), id());
-        ALOGE("Stop HAL Successfully Completed, mErrCode = %d\n", mErrCode);
+	ALOGV("Stop HAL Successfully Completed, mErrCode = %d\n", mErrCode);
         return result;
     }
 
@@ -1707,16 +1663,11 @@ public:
         : WifiCommand("RingDump", iface, id), mLargestBuffSize(0), mBuff(NULL),
         mErrCode(0)
     {
-        mMap = NULL;
-        mNumMaps = 0;
         memset(&mHandle, 0, sizeof(wifi_ring_buffer_data_handler));
-        for (int i = 0; i < DUMP_BUF_ATTR_MAX; i++) {
-            ring_name[i] = NULL;
-        }
     }
 
     int start() {
-        DUMP_INFO(("Start Ring Dump Map_cnt %d, register the event\n", mNumMaps));
+        DUMP_INFO(("Start Ring Dump Map_cnt:%d\n", mNumMaps));
         registerVendorHandler(GOOGLE_OUI, GOOGLE_FILE_DUMP_EVENT);
 
         //Set ringname to buf hashmap
@@ -1736,7 +1687,7 @@ public:
         if (mBuff) {
             free(mBuff);
             mBuff = NULL;
-            DUMP_INFO(("freed allocated memory and the handler\n"));
+            DUMP_INFO(("freed allocated memory\n"));
         }
         return WIFI_SUCCESS;
     }
@@ -1826,11 +1777,7 @@ public:
                         /* Skip msg header. Retrieved log */
                         (*mHandle.on_ring_buffer_data)(ring_name[buf_attr], mBuff,
                             attr_type_len[len_attr], &status);
-                    } else {
-                        DUMP_INFO(("RingDump: Retrieved Invalid mHandle\n"));
-                        break;
                     }
-                    ALOGI("Notified RingDump data of buf attr = %s\n", EWP_CmdAttrToString(buf_attr));
                     if (mBuff) {
                         memset(mBuff, 0, mLargestBuffSize);
                     }
@@ -1872,7 +1819,7 @@ public:
                 EWP_CmdAttrToString(buf_attr), index);
             return WIFI_ERROR_UNKNOWN;
         }
-        DUMP_INFO(("Trigger get ring dump for buf attr = %s\n",
+        DUMP_INFO(("Trigger get dump for buf attr = %s\n",
                 EWP_CmdAttrToString(buf_attr)));
 
         request.attr_end(data);
@@ -1926,19 +1873,18 @@ public:
                         mActualBuffSize = it.get_u32();
                         DUMP_DEBUG(("len attr %s, len %d\n",
                             EWP_EventAttrToString(attr), mActualBuffSize));
-                        if (mActualBuffSize > mLargestBuffSize) {
+                        if (mActualBuffSize > mLargestBuffSize)
                             mLargestBuffSize = mActualBuffSize;
-                        }
-                        attr_type_len[attr] = mActualBuffSize;
+                            attr_type_len[attr] = mActualBuffSize;
 
-                        /* Store the order in which attributes are received
-                         * so that file dump can be done in the same order
-                         */
-                        req_attr[req_attr_cnt++] = attr;
-                        break;
+                            /* Store the order in which attributes are received
+                             * so that file dump can be done in the same order
+                             */
+                            req_attr[req_attr_cnt++] = attr;
+                            break;
                     }
                     default: {
-                        ALOGE("RingDump: Ignoring invalid attribute type = %d, size = %d",
+                        ALOGE("Ignoring invalid attribute type = %d, size = %d",
                             attr, it.get_len());
                             break;
                         }
@@ -1972,11 +1918,6 @@ public:
                 }
 
                 index = logger_attr_lookup(attr);
-                if (index == -1) {
-                    ALOGE("Invalid index\n");
-                    return WIFI_ERROR_UNKNOWN;
-                }
-
                 buf_attr = attr_lookup_tbl[index].buf_attr;
                 if (!ring_name[buf_attr]) {
                     ALOGE("Failed to find ringname index:%d buf_attr:%d", index, buf_attr);
@@ -1990,33 +1931,27 @@ public:
                 result = request_logger_dump(request, &buf, attr);
                 if (result != WIFI_SUCCESS) {
                     /* Proceeding further for other attributes */
-                    ALOGE("Failed to request the ring dump for attr = %s; result = %d",
+                    ALOGE("Failed to request the logger dump for attr = %s; result = %d",
                         EWP_EventAttrToString(attr), result);
                     continue;
                 }
                 result = requestResponse(request);
                 if (result != WIFI_SUCCESS) {
-                    ALOGE("Failed to register get ring dump response for attr = %s; result = %d",
+                    ALOGE("Failed to register get memory dump response for attr = %s; result = %d",
                         EWP_EventAttrToString(attr), result);
                         /* Proceeding further for other attributes */
                         continue;
                 }
-                ALOGI("Success to send up the ring dump response for attr = %s; result = %d",
-                    EWP_EventAttrToString(attr), result);
             }
 
-            ALOGI("RingDump response is sent, proceed to done indication");
             WifiRequest request2(familyId(), ifaceId());
             result = request2.create(GOOGLE_OUI, LOGGER_FILE_DUMP_DONE_IND);
             if (result != WIFI_SUCCESS) {
-                ALOGE("Failed to indicate FILE_DUMP_DONE_IND; result = %d", result);
+                ALOGE("Failed to trigger dev close; result = %d", result);
                 freeup();
                 goto exit;
             }
-            result = requestResponse(request2);
-            if (result != WIFI_SUCCESS) {
-                ALOGE("Failed to register file done ind response; result = %d", result);
-            }
+            requestResponse(request2);
             freeup();
         } else {
             ALOGE("dump event missing dump length attribute");
@@ -2046,7 +1981,7 @@ wifi_error wifi_start_hal(wifi_interface_handle iface)
     }
     result = (wifi_error)cmd->start();
     if (result != WIFI_SUCCESS) {
-        wifi_unregister_cmd(handle, HAL_START_REQUEST_ID);
+        wifi_unregister_cmd(handle,HAL_START_REQUEST_ID);
         cmd->releaseRef();
         return result;
     }
@@ -2067,7 +2002,7 @@ wifi_error wifi_hal_preInit(wifi_interface_handle iface)
     }
     result = (wifi_error)cmd->preInit();
     if (result != WIFI_SUCCESS) {
-        wifi_unregister_cmd(handle, HAL_START_REQUEST_ID);
+        wifi_unregister_cmd(handle,HAL_START_REQUEST_ID);
         cmd->releaseRef();
         return result;
     }
@@ -2079,7 +2014,7 @@ wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
     wifi_ring_buffer_data_handler ring_handle)
 {
     wifi_handle handle = getWifiHandle(iface);
-    DUMP_INFO(("start ring dump, handle = %p, ring_handle = %p", handle, ring_handle));
+    DUMP_INFO(("start ring dump, handle = %p", handle));
     wifi_buf_ring_map_entry_t map[DUMP_BUF_ATTR_MAX];
     unsigned int num_maps = DUMP_BUF_ATTR_MAX;
     wifi_error result;
@@ -2091,7 +2026,6 @@ wifi_error wifi_start_ring_dump(wifi_interface_handle iface,
     debug_cmd->releaseRef();
 
     /* Set ringname to corresponding buf attr */
-    DUMP_INFO(("Cached ring_handle: %p for RingDump", ring_handle));
     RingDump *cmd = new RingDump(iface, FILE_DUMP_REQUEST_ID, num_maps, map, ring_handle);
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     result = wifi_register_cmd(handle, FILE_DUMP_REQUEST_ID, cmd);
@@ -2157,7 +2091,7 @@ wifi_error wifi_set_subsystem_restart_handler(wifi_handle handle,
     }
 
     /* Cache the handler to use it for trigger subsystem restart */
-    ALOGI("Register SSR handler");
+    ALOGI("Register SSR handler:%p", handler);
     info->restart_handler = handler;
     return result;
 }
@@ -2722,11 +2656,10 @@ wifi_error wifi_get_wake_reason_stats(wifi_interface_handle handle,
 ///////////////////////////////////////////////////////////////////////////////
 class OtaUpdateCommand : public WifiCommand
 {
-    int mErrCode;
 
     public:
     OtaUpdateCommand(wifi_interface_handle iface)
-        : WifiCommand("OtaUpdateCommand", iface, 0), mErrCode(0)
+        : WifiCommand("OtaUpdateCommand", iface, 0)
     { }
 
     int start() {
@@ -2811,7 +2744,7 @@ class OtaUpdateCommand : public WifiCommand
 
         result = requestResponse(request);
         if (result != WIFI_SUCCESS) {
-            ALOGE("Failed to register set otaDownload; result = %d, %d\n", result, mErrCode);
+            ALOGE("Failed to register set otaDownload; result = %d\n", result);
         }
 
         return result;
@@ -2861,10 +2794,10 @@ class OtaUpdateCommand : public WifiCommand
 wifi_error read_ota_file(char* file, char** buffer, uint32_t* size)
 {
     FILE* fp = NULL;
-    int file_size, count;
+    int file_size;
     char* buf;
-
     fp = fopen(file, "r");
+
     if (fp == NULL) {
         ALOGI("File [%s] doesn't exist.", file);
         return WIFI_ERROR_NOT_AVAILABLE;
@@ -2872,11 +2805,6 @@ wifi_error read_ota_file(char* file, char** buffer, uint32_t* size)
 
     fseek(fp, 0, SEEK_END);
     file_size = ftell(fp);
-    if (file_size == -1L) {
-        ALOGI("File [%s] size error not valid");
-        fclose(fp);
-        return WIFI_ERROR_NOT_AVAILABLE;
-    }
 
     buf = (char *)malloc(file_size + 1);
     if (buf == NULL) {
@@ -2885,13 +2813,7 @@ wifi_error read_ota_file(char* file, char** buffer, uint32_t* size)
     }
     memset(buf, 0, file_size + 1);
     fseek(fp, 0, SEEK_SET);
-    count = fread(buf, file_size, 1, fp);
-    if (!count) {
-        ALOGE("fread fail.");
-        free(buf);
-        fclose(fp);
-        return WIFI_ERROR_UNKNOWN;
-    }
+    fread(buf, file_size, 1, fp);
 
     *buffer = (char*) buf;
     *size = file_size;

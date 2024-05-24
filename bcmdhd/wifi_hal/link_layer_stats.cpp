@@ -94,16 +94,16 @@ public:
 protected:
     virtual int handleResponse(WifiEvent& reply) {
         bool ml_data = false;
+        wifi_radio_stat *radio_stat_ptr = NULL;
         wifi_iface_ml_stat *iface_ml_stat_ptr = NULL;
         u8 *radioStatsBuf = NULL, *ifaceMlStatsBuf = NULL, *outbuf = NULL, *data_ptr = NULL;
         u8 *data = NULL, *iface_stat = NULL;
-        uint32_t offset = 0, num_radios = 0, per_radio_size = 0, data_len = 0;
-        uint32_t outbuf_rem_len = 0, data_rem_len = 0;
-        int ret = 0, id = 0, subcmd = 0, len = 0;
+        uint32_t offset = 0, per_radio_size = 0, data_len = 0, outbuf_rem_len = 0, data_rem_len = 0;
+        int ret = 0, num_radios = 0, id = 0, subcmd = 0, len = 0;
         u32 fixed_iface_ml_stat_size = 0, all_links_stat_size = 0;
         u8 num_links = 0;
 
-        // ALOGI("In GetLinkStatsCommand::handleResponse");
+        ALOGI("In GetLinkStatsCommand::handleResponse");
 
         if (reply.get_cmd() != NL80211_CMD_VENDOR) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
@@ -134,140 +134,134 @@ protected:
             } else {
                 ALOGW("Ignoring invalid attribute type = %d, size = %d",
                 it.get_type(), it.get_len());
+            }
+        }
+
+        if (num_radios) {
+            outbuf_rem_len = MAX_CMD_RESP_BUF_LEN;
+            radioStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
+            if (!radioStatsBuf) {
+                ALOGE("No memory\n");
                 return NL_SKIP;
             }
-        }
+            memset(radioStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
+            outbuf = radioStatsBuf;
 
-        if (num_radios > MAX_NUM_RADIOS) {
-            ALOGE("Invalid num radios :%d\n", num_radios);
-            ret = WIFI_ERROR_INVALID_ARGS;
-            goto exit;
-        }
-
-        outbuf_rem_len = MAX_CMD_RESP_BUF_LEN;
-        radioStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
-        if (!radioStatsBuf) {
-            ALOGE("No memory\n");
-            return NL_SKIP;
-        }
-        memset(radioStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
-        outbuf = radioStatsBuf;
-
-        if (!data || !data_len) {
-            ALOGE("%s: null data\n", __func__);
-            goto exit;
-        }
-
-        data_ptr = data;
-        for (int i = 0; i < num_radios; i++) {
-            outbuf_rem_len -= per_radio_size;
-            if (outbuf_rem_len < per_radio_size) {
-                ALOGE("No data left for radio %d\n", i);
-                ret = WIFI_ERROR_INVALID_ARGS;
+            if (!data || !data_len) {
+                ALOGE("%s: null data\n", __func__);
                 goto exit;
             }
+            data_ptr = data;
+            for (int i = 0; i < num_radios; i++) {
+                outbuf_rem_len -= per_radio_size;
+                if (outbuf_rem_len < per_radio_size) {
+                    ALOGE("No data left for radio %d\n", i);
+                    goto exit;
+                }
 
-            data_ptr = data + offset;
-            if (!data_ptr) {
-                ALOGE("Invalid data for radio index = %d\n", i);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-            ret = convertToExternalRadioStatStructure((wifi_radio_stat*)data_ptr,
-                &per_radio_size, &outbuf, &outbuf_rem_len);
-            if (ret < 0) {
-                ALOGE(("Failed to map data radioStat struct\n"));
-                goto exit;
-            }
-            if (!per_radio_size) {
-                ALOGE("No data for radio %d\n", i);
-                continue;
-            }
-            outbuf += per_radio_size;
-            /* Accounted size of all the radio data len */
-            offset += per_radio_size;
-        }
-
-        if (ml_data) {
-            outbuf = NULL;
-            data_rem_len = data_len - offset;
-            fixed_iface_ml_stat_size = offsetof(wifi_iface_ml_stat, links);
-
-            /* Allocate vendor hal buffer, instead of using the nlmsg allocated buffer */
-            ifaceMlStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
-            if (!ifaceMlStatsBuf) {
-                ALOGE("No memory\n");
-                goto exit;
-            }
-            outbuf_rem_len = MAX_CMD_RESP_BUF_LEN;
-            memset(ifaceMlStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
-            outbuf = ifaceMlStatsBuf;
-
-            if (data_rem_len >= fixed_iface_ml_stat_size) {
-                data_ptr = (data + offset);
+                data_ptr = data + offset;
                 if (!data_ptr) {
-                    ALOGE("No iface ml stats fixed data!!, data_len = %d, offset = %d\n",
-                        data_len, offset);
-                    ret = WIFI_ERROR_INVALID_ARGS;
+                    ALOGE("Invalid data for radio index = %d\n", i);
                     goto exit;
                 }
+                radio_stat_ptr =
+                    convertToExternalRadioStatStructure((wifi_radio_stat*)data_ptr,
+                        &per_radio_size);
+                if (!radio_stat_ptr || !per_radio_size) {
+                    ALOGE("No data for radio %d\n", i);
+                    continue;
+                }
+                memcpy(outbuf, radio_stat_ptr, per_radio_size);
+                outbuf += per_radio_size;
+                /* Accounted size of all the radio data len */
+                offset += per_radio_size;
+            }
 
-                if (outbuf_rem_len < fixed_iface_ml_stat_size) {
-                    ALOGE("No space to copy fixed iface ml stats!, rem_len %d, req_len %d\n",
-                        outbuf_rem_len, fixed_iface_ml_stat_size);
-                    ret = WIFI_ERROR_OUT_OF_MEMORY;
+            if (ml_data) {
+                outbuf = NULL;
+                data_rem_len = data_len - offset;
+                fixed_iface_ml_stat_size = offsetof(wifi_iface_ml_stat, links);
+
+                /* Allocate vendor hal buffer, instead of using the nlmsg allocated buffer */
+                ifaceMlStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
+                if (!ifaceMlStatsBuf) {
+                    ALOGE("No memory\n");
                     goto exit;
                 }
+                outbuf_rem_len = MAX_CMD_RESP_BUF_LEN;
+                memset(ifaceMlStatsBuf, 0, MAX_CMD_RESP_BUF_LEN);
+                outbuf = ifaceMlStatsBuf;
 
-                memcpy(outbuf, data_ptr, fixed_iface_ml_stat_size);
-                data_rem_len -= fixed_iface_ml_stat_size;
-                outbuf_rem_len -= fixed_iface_ml_stat_size;
-                outbuf += fixed_iface_ml_stat_size;
-                offset += fixed_iface_ml_stat_size;
-
-                iface_ml_stat_ptr = (wifi_iface_ml_stat *)ifaceMlStatsBuf;
-                if (!iface_ml_stat_ptr) {
-                    ALOGE("No iface ml stats data!!");
-                    goto exit;
-                }
-
-                num_links = iface_ml_stat_ptr->num_links;
-                all_links_stat_size = (num_links * offsetof(wifi_link_stat, peer_info));
-                if (num_links > MAX_MLO_LINK) {
-                    ALOGE("Invalid num links :%d\n", num_links);
-                    goto exit;
-                }
-
-                if (num_links && (data_rem_len >= all_links_stat_size)) {
-                    ret = convertToExternalIfaceMlstatStructure(&data, &offset, &outbuf,
-                            &data_rem_len, num_links, &outbuf_rem_len);
-                    if (ret < 0) {
-                        ALOGE(("Failed to map data to iface ml struct\n"));
+                if (data_rem_len >= fixed_iface_ml_stat_size) {
+                    data_ptr = (data + offset);
+                    if (!data_ptr) {
+                        ALOGE("No iface ml stats fixed data!!, data_len = %d, offset = %d\n",
+                            data_len, offset);
+                        ret = WIFI_ERROR_INVALID_ARGS;
                         goto exit;
                     }
-                } else {
-                    ALOGE("num_links %d, Required data not found: expected len %d,"
+
+                    if (outbuf_rem_len < fixed_iface_ml_stat_size) {
+                        ALOGE("No space to copy fixed iface ml stats!, rem_len %d, req_len %d\n",
+                            outbuf_rem_len, fixed_iface_ml_stat_size);
+                        ret = WIFI_ERROR_OUT_OF_MEMORY;
+                        goto exit;
+                    }
+
+                    memcpy(outbuf, data_ptr, fixed_iface_ml_stat_size);
+                    data_rem_len -= fixed_iface_ml_stat_size;
+                    outbuf_rem_len -= fixed_iface_ml_stat_size;
+                    outbuf += fixed_iface_ml_stat_size;
+                    offset += fixed_iface_ml_stat_size;
+
+                    iface_ml_stat_ptr = (wifi_iface_ml_stat *)ifaceMlStatsBuf;
+                    if (!iface_ml_stat_ptr) {
+                        ALOGE("No iface ml stats data!!");
+                        goto exit;
+                    }
+
+                    num_links = iface_ml_stat_ptr->num_links;
+                    all_links_stat_size = (num_links * offsetof(wifi_link_stat, peer_info));
+
+                    if (num_links >= MAX_MLO_LINK) {
+                        ALOGE("Invalid num links :%d\n", num_links);
+                        goto exit;
+                    }
+                    if (num_links && (data_rem_len >= all_links_stat_size)) {
+                        ret = convertToExternalIfaceMlstatStructure(&data, &offset, &outbuf,
+                            &data_rem_len, num_links, &outbuf_rem_len);
+                        if (ret < 0) {
+                            ALOGE(("Failed to map data to iface ml struct\n"));
+                            goto exit;
+                        }
+                    } else {
+                        ALOGE("num_links %d, Required data not found: expected len %d,"
                             " data_rem_len %d\n", num_links, all_links_stat_size, data_rem_len);
+                    }
+                    (*mHandler.on_multi_link_stats_results)(id,
+                        (wifi_iface_ml_stat *)ifaceMlStatsBuf, num_radios,
+                        (wifi_radio_stat *)radioStatsBuf);
                 }
-                (*mHandler.on_multi_link_stats_results)(id,
-                    (wifi_iface_ml_stat *)ifaceMlStatsBuf, num_radios,
-                    (wifi_radio_stat *)radioStatsBuf);
-            }
-        } else if ((data_len >= (offset + sizeof(wifi_iface_stat)))) {
-            iface_stat = (data + offset);
-            if (!iface_stat) {
-                ALOGE("No data for legacy iface stats!!, data_len = %d, offset = %d\n",
+            } else if ((data_len >= (offset + sizeof(wifi_iface_stat)))) {
+                iface_stat = (data + offset);
+                if (!iface_stat) {
+                    ALOGE("No data for legacy iface stats!!, data_len = %d, offset = %d\n",
+                        data_len, offset);
+                    goto exit;
+                }
+                (*mHandler.on_link_stats_results)(id, (wifi_iface_stat *)iface_stat,
+                    num_radios, (wifi_radio_stat *)radioStatsBuf);
+            } else {
+                ALOGE("No data for iface stats!!, data_len = %d, offset = %d\n",
                     data_len, offset);
                 goto exit;
             }
-            (*mHandler.on_link_stats_results)(id, (wifi_iface_stat *)iface_stat,
-                num_radios, (wifi_radio_stat *)radioStatsBuf);
-        } else {
-            ALOGE("No data for iface stats!!, data_len = %d, offset = %d\n",
-                data_len, offset);
-            goto exit;
         }
 exit:
+        if (radio_stat_ptr) {
+            free(radio_stat_ptr);
+            radio_stat_ptr = NULL;
+        }
         if (radioStatsBuf) {
             free(radioStatsBuf);
             radioStatsBuf = NULL;
@@ -280,25 +274,37 @@ exit:
     }
 
 private:
-    int convertToExternalRadioStatStructure(wifi_radio_stat *internal_stat_ptr,
-        uint32_t *per_radio_size, u8 **outbuf, uint32_t *outbuf_rem_len)
+    wifi_radio_stat *convertToExternalRadioStatStructure(wifi_radio_stat *internal_stat_ptr,
+        uint32_t *per_radio_size)
     {
-        int ret = 0;
+        wifi_radio_stat *external_stat_ptr = NULL;
         if (!internal_stat_ptr) {
             ALOGE("Incoming data is null\n");
-            ret = WIFI_ERROR_INVALID_ARGS;
         } else {
             uint32_t channel_size = internal_stat_ptr->num_channels * sizeof(wifi_channel_stat);
             *per_radio_size = offsetof(wifi_radio_stat, channels) + channel_size;
-            if (*outbuf_rem_len >= *per_radio_size) {
-                memcpy(*outbuf, internal_stat_ptr, *per_radio_size);
-            } else {
-                ALOGE("Insufficient buf size to copy. rem len %d, req size %d\n",
-                    *outbuf_rem_len, *per_radio_size);
-                ret = WIFI_ERROR_OUT_OF_MEMORY;
+            external_stat_ptr = (wifi_radio_stat *)malloc(*per_radio_size);
+            if (external_stat_ptr) {
+                external_stat_ptr->radio = internal_stat_ptr->radio;
+                external_stat_ptr->on_time = internal_stat_ptr->on_time;
+                external_stat_ptr->tx_time = internal_stat_ptr->tx_time;
+                external_stat_ptr->num_tx_levels = internal_stat_ptr->num_tx_levels;
+                external_stat_ptr->tx_time_per_levels = NULL;
+                external_stat_ptr->rx_time = internal_stat_ptr->rx_time;
+                external_stat_ptr->on_time_scan = internal_stat_ptr->on_time_scan;
+                external_stat_ptr->on_time_nbd = internal_stat_ptr->on_time_nbd;
+                external_stat_ptr->on_time_gscan = internal_stat_ptr->on_time_gscan;
+                external_stat_ptr->on_time_roam_scan = internal_stat_ptr->on_time_roam_scan;
+                external_stat_ptr->on_time_pno_scan = internal_stat_ptr->on_time_pno_scan;
+                external_stat_ptr->on_time_hs20 = internal_stat_ptr->on_time_hs20;
+                external_stat_ptr->num_channels = internal_stat_ptr->num_channels;
+                if (internal_stat_ptr->num_channels) {
+                    memcpy(&(external_stat_ptr->channels), &(internal_stat_ptr->channels),
+                        channel_size);
+                }
             }
         }
-        return ret;
+        return external_stat_ptr;
     }
 
     int convertToExternalRatestatsStructure(u8 **data, u32 *offset, u8 **outbuf,
@@ -397,27 +403,19 @@ private:
             }
 
             num_rate = peer_info_ptr->num_rate;
-            if ((num_rate == NUM_RATE) || (num_rate == NUM_RATE_NON_BE)) {
-                all_rate_stats_per_peer_per_link_size = num_rate * sizeof(wifi_rate_stat);
-                if (num_rate && (*data_rem_len >= all_rate_stats_per_peer_per_link_size)) {
-                    ret = convertToExternalRatestatsStructure(data, offset, outbuf, data_rem_len,
-                        peer_info_ptr, num_rate, outbuf_rem_len);
-                    if (ret != WIFI_SUCCESS) {
-                        ALOGE(("Failed to convert it to rate stats\n"));
-                        goto exit;
-                    }
-                } else {
-                    ALOGI("num_rate %d, Required rate_stats not found: expected len %d,"
-                        " data_rem_len %d\n", num_rate, all_rate_stats_per_peer_per_link_size,
-                        *data_rem_len);
-                    continue;
+            all_rate_stats_per_peer_per_link_size = num_rate*sizeof(wifi_rate_stat);
+            if (num_rate && (*data_rem_len >= all_rate_stats_per_peer_per_link_size)) {
+                ret = convertToExternalRatestatsStructure(data, offset, outbuf, data_rem_len,
+                    peer_info_ptr, num_rate, outbuf_rem_len);
+                if (ret != WIFI_SUCCESS) {
+                    ALOGE(("Failed to convert it to rate stats\n"));
+                    goto exit;
                 }
-            } else if (num_rate == 0) {
-                ALOGI("Sta is not associated, num rate :%d\n", num_rate);
             } else {
-                ALOGE("Invalid num rate :%d\n", num_rate);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
+                ALOGI("num_rate %d, Required rate_stats not found: expected len %d,"
+                    " data_rem_len %d\n", num_rate, all_rate_stats_per_peer_per_link_size,
+                    *data_rem_len);
+                continue;
             }
         }
 
@@ -471,15 +469,9 @@ private:
                 goto exit;
             }
 
-            if (links_ptr->num_peers != NUM_PEER_AP) {
-                ALOGE("Invalid num peer :%d\n", links_ptr->num_peers);
-                ret = WIFI_ERROR_INVALID_ARGS;
-                goto exit;
-            }
-
             num_peers = links_ptr->num_peers;
             all_peers_per_link_size = num_peers * offsetof(wifi_peer_info, rate_stats);
-            if ((num_peers == NUM_PEER_AP) && (*data_rem_len >= all_peers_per_link_size)) {
+            if (num_peers && (*data_rem_len >= all_peers_per_link_size)) {
                 ret = convertToExternalIfaceLinkstatStructure(data, offset, outbuf,
                     data_rem_len, num_peers, links_ptr, outbuf_rem_len);
                 if (ret != WIFI_SUCCESS) {

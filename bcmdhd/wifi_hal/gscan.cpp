@@ -321,15 +321,11 @@ protected:
             if (it.get_type() == GSCAN_ATTRIBUTE_NUM_CHANNELS) {
                 num_channels_to_copy = it.get_u32();
                 ALOGI("Got channel list with %d channels", num_channels_to_copy);
-                if(num_channels_to_copy > max_channels) {
+                if(num_channels_to_copy > max_channels)
                     num_channels_to_copy = max_channels;
-                }
                 *num_channels = num_channels_to_copy;
             } else if (it.get_type() == GSCAN_ATTRIBUTE_CHANNEL_LIST && num_channels_to_copy) {
-                memcpy(channels, it.get_data(), sizeof(wifi_channel) * num_channels_to_copy);
-                for (int i = 0; i < num_channels_to_copy; i++) {
-                        ALOGD("count %d: channel %d MHz\n", i, channels[i]);
-                }
+                memcpy(channels, it.get_data(), sizeof(int) * num_channels_to_copy);
             } else {
                 ALOGW("Ignoring invalid attribute type = %d, size = %d",
                         it.get_type(), it.get_len());
@@ -459,7 +455,6 @@ public:
     { }
 
     int createSetupRequest(WifiRequest& request) {
-        int i;
         int result = request.create(GOOGLE_OUI, GSCAN_SUBCMD_SET_CONFIG);
         if (result < 0) {
             return result;
@@ -476,7 +471,7 @@ public:
             return result;
         }
 
-        for (i = 0; i < (int)mParams->num_buckets; i++) {
+        for (int i = 0; i < mParams->num_buckets; i++) {
             nlattr * bucket = request.attr_start(i);    // next bucket
             result = request.put_u32(GSCAN_ATTRIBUTE_BUCKET_ID, mParams->buckets[i].bucket);
             if (result < 0) {
@@ -1961,16 +1956,7 @@ public:
         if (!mResult) {
             return NL_SKIP;
         }
-
         wifi_gscan_full_result_t *drv_res = (wifi_gscan_full_result_t *)event.get_vendor_data();
-        /* To protect against corrupted data, put a ceiling */
-        int ie_len = min(MAX_PROBE_RESP_IE_LEN, drv_res->ie_length);
-        if ((ie_len + offsetof(wifi_gscan_full_result_t, ie_data)) > len) {
-            ALOGE("BAD event data, len %d ie_len %d fixed length %lu!\n", len,
-                ie_len, offsetof(wifi_gscan_full_result_t, ie_data));
-            return NL_SKIP;
-        }
-
         wifi_gscan_result_t *fixed = &drv_res->fixed;
         convert_to_hal_result(mResult, fixed);
 
