@@ -75,15 +75,7 @@ const uint32_t BRCM_OUI =  0x001018;
 #define NUM_RATE_NON_BE                 36u
 
 #define NL_MSG_MAX_LEN                  5120u
-
-/* nl_msg->nm_nlh->nlmsg_len is added by data len of the attributes
- * NL80211_ATTR_VENDOR_ID, NL80211_ATTR_VENDOR_SUBCMD,
- * NL80211_ATTR_IFINDEX, APF_PROGRAM_LEN by 56u
- * To keep the additioanl room and aligned,
- * keeping the overhead of 128u
- */
-#define NL_MSG_HDR_OVERHEAD_LEN		128u
-#define NL_MSG_DEFAULT_LEN		(getpagesize() - NL_MSG_HDR_OVERHEAD_LEN)
+#define NL_MSG_DEFAULT_LEN    (getpagesize() -  NLMSG_HDRLEN)
 
 #define NAN_MAX_PAIRING_CNT             8u
 #define NAN_MAX_COOKIE_LEN              255u
