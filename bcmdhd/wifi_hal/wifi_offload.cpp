@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2023 Broadcom Limited
+ * Portions copyright (C) 2024 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,9 +50,9 @@ typedef enum {
 } WIFI_OFFLOAD_SUB_COMMAND;
 
 typedef enum {
-    MKEEP_ALIVE_ATTRIBUTE_INVALID		= 0,
-    MKEEP_ALIVE_ATTRIBUTE_ID			= 1,
-    MKEEP_ALIVE_ATTRIBUTE_IP_PKT		= 2,
+    MKEEP_ALIVE_ATTRIBUTE_INVALID               = 0,
+    MKEEP_ALIVE_ATTRIBUTE_ID                    = 1,
+    MKEEP_ALIVE_ATTRIBUTE_IP_PKT                = 2,
     MKEEP_ALIVE_ATTRIBUTE_IP_PKT_LEN		= 3,
     MKEEP_ALIVE_ATTRIBUTE_SRC_MAC_ADDR		= 4,
     MKEEP_ALIVE_ATTRIBUTE_DST_MAC_ADDR		= 5,
