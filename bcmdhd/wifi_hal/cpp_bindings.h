@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -189,12 +189,17 @@ public:
     }
 
     /* Command assembly helpers */
-    int create(int family, uint8_t cmd, int flags, int hdrlen);
+    int create(int family, uint8_t cmd, int flags, int data_len);
     int create(uint8_t cmd) {
         return create(mFamily, cmd, 0, 0);
     }
 
+    int create_custom_len(uint8_t cmd, int data_len) {
+        return create(mFamily, cmd, 0, data_len);
+    }
+
     int create(uint32_t id, int subcmd);
+    int create_custom_len(uint32_t id, int subcmd, int data_len);
 
     int put(int attribute, void *ptr, unsigned len) {
         return nla_put(mMsg, attribute, len, ptr);

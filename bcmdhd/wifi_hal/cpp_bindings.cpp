@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
- * Portions copyright (C) 2017 Broadcom Limited
+ * Portions copyright (C) 2023 Broadcom Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -565,14 +565,23 @@ int WifiEvent::parse() {
     return result;
 }
 
-int WifiRequest::create(int family, uint8_t cmd, int flags, int hdrlen) {
+int WifiRequest::create(int family, uint8_t cmd, int flags, int data_len) {
 
     destroy();
 
-    mMsg = nlmsg_alloc();
+    /* If data_len is 0, default msg size will be used
+     * (nlmsg_alloc uses PAGE_SIZE by default).
+     * data_len is requested specifically for cases where len needs
+     * to be greater than default_size.
+     */
+    if (data_len) {
+        mMsg = nlmsg_alloc_size(data_len);
+    } else {
+        mMsg = nlmsg_alloc();
+    }
     if (mMsg != NULL) {
         genlmsg_put(mMsg, /* pid = */ 0, /* seq = */ 0, family,
-                hdrlen, flags, cmd, /* version = */ 0);
+                0, flags, cmd, /* version = */ 0);
         return WIFI_SUCCESS;
     } else {
         return WIFI_ERROR_OUT_OF_MEMORY;
@@ -609,6 +618,29 @@ static int mapErrorCodes(int err)
     }
     ALOGD("error code %d mapped to %d", err, ret);
     return ret;
+}
+
+int WifiRequest::create_custom_len(uint32_t id, int subcmd, int data_len) {
+    int res = create_custom_len(NL80211_CMD_VENDOR, data_len);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+
+    res = put_u32(NL80211_ATTR_VENDOR_ID, id);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+
+    res = put_u32(NL80211_ATTR_VENDOR_SUBCMD, subcmd);
+    if (res < 0) {
+        return mapErrorCodes(res);
+    }
+
+    if (mIface != -1) {
+        res = set_iface_id(mIface);
+    }
+
+    return mapErrorCodes(res);
 }
 
 int WifiRequest::create(uint32_t id, int subcmd) {
@@ -650,11 +682,18 @@ int WifiCommand::requestResponse() {
 }
 
 int WifiCommand::requestResponse(WifiRequest& request) {
-    int err = 0;
+    int err = 0, res = 0;
 
     struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
-    if (!cb)
+    if (!cb) {
+        ALOGE("nl80211: cb alloc failed");
         goto out;
+    }
+
+    if (!mInfo->cmd_sock) {
+        ALOGE("cmd_sock is already freed mInfo:%p mIfaceInfo:%p\n", mInfo, mIfaceInfo);
+        goto out;
+    }
 
     err = nl_send_auto_complete(mInfo->cmd_sock, request.getMessage());    /* send message */
     if (err < 0)
@@ -669,7 +708,7 @@ int WifiCommand::requestResponse(WifiRequest& request) {
     nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, response_handler, this);
 
     while (err > 0) {                   /* wait for reply */
-        int res = nl_recvmsgs(mInfo->cmd_sock, cb);
+        res = nl_recvmsgs(mInfo->cmd_sock, cb);
         if (res) {
             ALOGE("nl80211: %s->nl_recvmsgs failed: %d", __func__, res);
         }
