@@ -23,11 +23,10 @@
 
 #define LOG_TAG  "WifiHAL"
 
-#include <unistd.h>
-
 #include <log/log.h>
 #include "nl80211_copy.h"
 #include "sync.h"
+#include <unistd.h>
 
 #define SOCKET_BUFFER_SIZE      (32768U)
 #define RECV_BUF_SIZE           (4096)
@@ -50,25 +49,44 @@ const uint32_t GOOGLE_OUI = 0x001A11;
 const uint32_t BRCM_OUI =  0x001018;
 /* TODO: define vendor OUI here */
 
-
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
 
 #define NMR2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5], (a)[6], (a)[7]
 #define NMRSTR "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
-#define NAN_MASTER_RANK_LEN 8
-#define NAN_SCID_INFO_LEN   16
-#define NAN_MAX_NDP_PEER 8u
-#define NAN_MAX_NDP_COUNT_SIZE NAN_MAX_NDP_PEER * sizeof(NanDataPathId)
+#define NAN_MAX_SVC_INFO_LEN            255u
+#define NAN_MASTER_RANK_LEN             8u
+#define NAN_SCID_INFO_LEN               16u
 
-#define SAR_CONFIG_SCENARIO_COUNT      100
-#define MAX_NUM_RADIOS 3
-#define MAX_CMD_RESP_BUF_LEN 8192
-#define MAX_MLO_LINK 3
+#define NAN_MAX_NDP_PEER                8u
+#define NAN_MAX_NDP_COUNT_SIZE          NAN_MAX_NDP_PEER * sizeof(NanDataPathId)
+#define SAR_CONFIG_SCENARIO_COUNT       100
+#define MAX_NUM_RADIOS                  3u
+#define MAX_CMD_RESP_BUF_LEN            8192u
+#define MAX_MLO_LINK                    3u
+/* For STA, peer would be only one - AP.*/
+#define NUM_PEER_AP                     1u
+/* 11n/HT:   OFDM(12) + HT(16) rates = 28 (MCS0 ~ MCS15)
+ * 11ac/VHT: OFDM(12) + VHT(12) x 2 nss = 36 (MCS0 ~ MCS11)
+ * 11ax/HE:  OFDM(12) + HE(12) x 2 nss = 36 (MCS0 ~ MCS11)
+ * 11be/EHT:  OFDM(12) + EHT(16) x 2 nss = 44 (MCS0 ~ MCS15)
+ */
+#define NUM_RATE                        44u
+#define NUM_RATE_NON_BE                 36u
 
+#define NL_MSG_MAX_LEN                  5120u
 
-#define NL_MSG_MAX_LEN        5120u
-#define NL_MSG_DEFAULT_LEN    (getpagesize() -  NLMSG_HDRLEN)
+/* nl_msg->nm_nlh->nlmsg_len is added by data len of the attributes
+ * NL80211_ATTR_VENDOR_ID, NL80211_ATTR_VENDOR_SUBCMD,
+ * NL80211_ATTR_IFINDEX, APF_PROGRAM_LEN by 56u
+ * To keep the additioanl room and aligned,
+ * keeping the overhead of 128u
+ */
+#define NL_MSG_HDR_OVERHEAD_LEN		128u
+#define NL_MSG_DEFAULT_LEN		(getpagesize() - NL_MSG_HDR_OVERHEAD_LEN)
+
+#define NAN_MAX_PAIRING_CNT             8u
+#define NAN_MAX_COOKIE_LEN              255u
 
 /*
  This enum defines ranges for various commands; commands themselves
@@ -152,10 +170,11 @@ typedef enum {
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_START = 0x2160,
     ANDROID_NL80211_SUBCMD_INIT_DEINIT_RANGE_END   = 0x216F,
 
-    /* define scan related commands between 0x2170 and 0x2175 */
+   /* define scan related commands between 0x2170 and 0x2175 */
     ANDROID_NL80211_SUBCMD_SCAN_START = 0x2170,
     ANDROID_NL80211_SUBCMD_SCAN_END = 0x2175,
-    /* This is reserved for future usage */
+
+   /* This is reserved for future usage */
 
 } ANDROID_VENDOR_SUB_COMMAND;
 
@@ -200,7 +219,7 @@ typedef enum {
     WIFI_SUBCMD_SET_MULTISTA_PRIMARY_CONNECTION,         /* 0x101c */
     WIFI_SUBCMD_SET_MULTISTA_USE_CASE,                   /* 0x101d */
     WIFI_SUBCMD_SET_DTIM_CONFIG,                         /* 0x101e */
-    WIFI_SUBCMD_CHANNEL_POLICY,                          /* 0x101f */
+    WIFI_SUBCMD_CHANNEL_POLICY,                         /* 0x101f */
 
     GSCAN_SUBCMD_MAX,
 
@@ -226,13 +245,18 @@ typedef enum {
     NAN_SUBCMD_ENABLE_MERGE,                            /* 0x1712 */
     NAN_SUBCMD_SUSPEND,                                 /* 0x1713 */
     NAN_SUBCMD_RESUME,                                  /* 0x1714 */
+    NAN_SUBCMD_PAIRING_REQUEST,                         /* 0x1715 */
+    NAN_SUBCMD_PAIRING_RESPONSE,                        /* 0x1716 */
+    NAN_SUBCMD_PAIRING_END,                             /* 0x1717 */
+    NAN_SUBCMD_BOOTSTRAPPING_REQUEST,                   /* 0x1718 */
+    NAN_SUBCMD_BOOTSTRAPPING_RESPONSE,                  /* 0x1719 */
     APF_SUBCMD_GET_CAPABILITIES = ANDROID_NL80211_SUBCMD_PKT_FILTER_RANGE_START,
     APF_SUBCMD_SET_FILTER,
     APF_SUBCMD_READ_FILTER,
     WIFI_SUBCMD_TX_POWER_SCENARIO = ANDROID_NL80211_SUBCMD_TX_POWER_RANGE_START,
     WIFI_SUBCMD_THERMAL_MITIGATION = ANDROID_NL80211_SUBCMD_MITIGATION_RANGE_START,
     DSCP_SUBCMD_SET_TABLE = ANDROID_NL80211_SUBCMD_DSCP_RANGE_START,
-    DSCP_SUBCMD_RESET_TABLE,			    	/* 0x2001 */
+    DSCP_SUBCMD_RESET_TABLE,                            /* 0x2001 */
     CHAVOID_SUBCMD_SET_CONFIG = ANDROID_NL80211_SUBCMD_CHAVOID_RANGE_START,
 
     TWT_SUBCMD_GETCAPABILITY	= ANDROID_NL80211_SUBCMD_TWT_START,
@@ -254,51 +278,58 @@ typedef enum {
 } WIFI_SUB_COMMAND;
 
 typedef enum {
-    BRCM_RESERVED1				= 0,
-    BRCM_RESERVED2				= 1,
+    BRCM_RESERVED1                          = 0,
+    BRCM_RESERVED2                          = 1,
     GSCAN_EVENT_SIGNIFICANT_CHANGE_RESULTS	= 2,
-    GSCAN_EVENT_HOTLIST_RESULTS_FOUND		= 3,
-    GSCAN_EVENT_SCAN_RESULTS_AVAILABLE		= 4,
-    GSCAN_EVENT_FULL_SCAN_RESULTS		= 5,
-    RTT_EVENT_COMPLETE				= 6,
-    GSCAN_EVENT_COMPLETE_SCAN			= 7,
-    GSCAN_EVENT_HOTLIST_RESULTS_LOST		= 8,
-    GSCAN_EVENT_EPNO_EVENT			= 9,
-    GOOGLE_DEBUG_RING_EVENT			= 10,
-    GOOGLE_DEBUG_MEM_DUMP_EVENT			= 11,
-    GSCAN_EVENT_ANQPO_HOTSPOT_MATCH		= 12,
-    GOOGLE_RSSI_MONITOR_EVENT			= 13,
-    GOOGLE_MKEEP_ALIVE				= 14,
+    GSCAN_EVENT_HOTLIST_RESULTS_FOUND       = 3,
+    GSCAN_EVENT_SCAN_RESULTS_AVAILABLE      = 4,
+    GSCAN_EVENT_FULL_SCAN_RESULTS           = 5,
+    RTT_EVENT_COMPLETE                      = 6,
+    GSCAN_EVENT_COMPLETE_SCAN               = 7,
+    GSCAN_EVENT_HOTLIST_RESULTS_LOST        = 8,
+    GSCAN_EVENT_EPNO_EVENT                  = 9,
+    GOOGLE_DEBUG_RING_EVENT                 = 10,
+    GOOGLE_DEBUG_MEM_DUMP_EVENT             = 11,
+    GSCAN_EVENT_ANQPO_HOTSPOT_MATCH         = 12,
+    GOOGLE_RSSI_MONITOR_EVENT               = 13,
+    GOOGLE_MKEEP_ALIVE                      = 14,
 
     /*
      * BRCM specific events should be placed after the Generic events
      * in order to match between the DHD and HAL
      */
-    NAN_EVENT_ENABLED				= 15,
-    NAN_EVENT_DISABLED				= 16,
-    NAN_EVENT_SUBSCRIBE_MATCH			= 17,
-    NAN_EVENT_PUBLISH_REPLIED_IND		= 18,
-    NAN_EVENT_PUBLISH_TERMINATED		= 19,
-    NAN_EVENT_SUBSCRIBE_TERMINATED		= 20,
-    NAN_EVENT_DE_EVENT				= 21,
-    NAN_EVENT_FOLLOWUP				= 22,
-    NAN_EVENT_TRANSMIT_FOLLOWUP_IND		= 23,
-    NAN_EVENT_DATA_REQUEST			= 24,
-    NAN_EVENT_DATA_CONFIRMATION			= 25,
-    NAN_EVENT_DATA_END				= 26,
-    NAN_EVENT_BEACON				= 27,
-    NAN_EVENT_SDF				= 28,
-    NAN_EVENT_TCA				= 29,
-    NAN_EVENT_SUBSCRIBE_UNMATCH			= 30,
-    NAN_EVENT_UNKNOWN				= 31,
-    BRCM_VENDOR_EVENT_HANGED			= 33,
+    NAN_EVENT_ENABLED                      = 15,
+    NAN_EVENT_DISABLED                     = 16,
+    NAN_EVENT_SUBSCRIBE_MATCH              = 17,
+    NAN_EVENT_PUBLISH_REPLIED_IND          = 18,
+    NAN_EVENT_PUBLISH_TERMINATED           = 19,
+    NAN_EVENT_SUBSCRIBE_TERMINATED         = 20,
+    NAN_EVENT_DE_EVENT                     = 21,
+    NAN_EVENT_FOLLOWUP                     = 22,
+    NAN_EVENT_TRANSMIT_FOLLOWUP_IND        = 23,
+    NAN_EVENT_DATA_REQUEST                 = 24,
+    NAN_EVENT_DATA_CONFIRMATION            = 25,
+    NAN_EVENT_DATA_END                     = 26,
+    NAN_EVENT_BEACON                       = 27,
+    NAN_EVENT_SDF                          = 28,
+    NAN_EVENT_TCA                          = 29,
+    NAN_EVENT_SUBSCRIBE_UNMATCH            = 30,
+    NAN_EVENT_UNKNOWN                      = 31,
+    BRCM_VENDOR_EVENT_HANGED               = 33,
+ 
     ROAM_EVENT_START,
-    GOOGLE_FILE_DUMP_EVENT			= 37,
-    NAN_ASYNC_RESPONSE_DISABLED			= 40,
-    BRCM_VENDOR_EVENT_TWT			= 43,
-    BRCM_TPUT_DUMP_EVENT			= 44,
-    NAN_EVENT_MATCH_EXPIRY			= 45,
-    NAN_EVENT_SUSPENSION_STATUS                 = 49
+    GOOGLE_FILE_DUMP_EVENT                 = 37,
+    NAN_ASYNC_RESPONSE_DISABLED            = 40,
+    BRCM_VENDOR_EVENT_TWT                  = 43,
+    BRCM_TPUT_DUMP_EVENT                   = 44,
+    NAN_EVENT_MATCH_EXPIRY                 = 45,
+    NAN_EVENT_SUSPENSION_STATUS            = 49,
+    NAN_EVENT_PAIRING_REQUEST              = 50,
+    NAN_EVENT_PAIRING_CONFIRMATION         = 51,
+    NAN_EVENT_PAIRING_END                  = 52,
+    NAN_EVENT_BOOTSTRAPPING_REQUEST        = 53,
+    NAN_EVENT_BOOTSTRAPPING_CONFIRMATION   = 54
+    /* Add more events from here */
 } WIFI_EVENT;
 
 typedef void (*wifi_internal_event_handler) (wifi_handle handle, int events);
@@ -326,9 +357,9 @@ typedef struct {
 } interface_info;
 
 typedef enum {
-	NAN_STATE_DISABLED = 0,
-	NAN_STATE_AP = 1,
-	NAN_STATE_CHRE = 2,
+    NAN_STATE_DISABLED = 0,
+    NAN_STATE_AP = 1,
+    NAN_STATE_CHRE = 2,
 } nan_enab_state_t;
 
 typedef struct {
@@ -591,6 +622,7 @@ wifi_error nan_chre_register_handler(wifi_interface_handle iface,
 
 // some common macros
 
+void prhex(const char *msg, u8 *buf, u32 nbytes);
 #define min(x, y)       ((x) < (y) ? (x) : (y))
 #define max(x, y)       ((x) > (y) ? (x) : (y))
 
