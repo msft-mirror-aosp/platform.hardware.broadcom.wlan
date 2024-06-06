@@ -5385,7 +5385,7 @@ void testSarOptions(int argc, char *argv[])
 
     if ((argc > 2) && (strcmp(argv[1], "enable") == 0)) {
         scenario = atoi(argv[2]);
-        if ((scenario < WIFI_POWER_SCENARIO_DEFAULT) || (scenario > SAR_CONFIG_SCENARIO_COUNT)) {
+        if ((scenario < WIFI_POWER_SCENARIO_INVALID) || (scenario > SAR_CONFIG_SCENARIO_COUNT)) {
             printMsg("Unsupported tx power value:%d: Allowed range -1 to 99\n", scenario);
             return;
         }
