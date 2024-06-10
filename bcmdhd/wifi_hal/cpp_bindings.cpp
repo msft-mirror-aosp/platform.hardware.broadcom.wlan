@@ -625,17 +625,21 @@ int WifiRequest::create_custom_len(uint32_t id, int subcmd, int data_len) {
     if (res < 0) {
         return mapErrorCodes(res);
     }
+
     res = put_u32(NL80211_ATTR_VENDOR_ID, id);
     if (res < 0) {
         return mapErrorCodes(res);
     }
+
     res = put_u32(NL80211_ATTR_VENDOR_SUBCMD, subcmd);
     if (res < 0) {
         return mapErrorCodes(res);
     }
+
     if (mIface != -1) {
         res = set_iface_id(mIface);
     }
+
     return mapErrorCodes(res);
 }
 
@@ -678,7 +682,7 @@ int WifiCommand::requestResponse() {
 }
 
 int WifiCommand::requestResponse(WifiRequest& request) {
-    int err = 0;
+    int err = 0, res = 0;
 
     struct nl_cb *cb = nl_cb_alloc(NL_CB_DEFAULT);
     if (!cb) {
@@ -704,7 +708,7 @@ int WifiCommand::requestResponse(WifiRequest& request) {
     nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, response_handler, this);
 
     while (err > 0) {                   /* wait for reply */
-        int res = nl_recvmsgs(mInfo->cmd_sock, cb);
+        res = nl_recvmsgs(mInfo->cmd_sock, cb);
         if (res) {
             ALOGE("nl80211: %s->nl_recvmsgs failed: %d", __func__, res);
         }
