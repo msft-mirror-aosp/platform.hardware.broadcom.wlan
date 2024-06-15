@@ -599,6 +599,10 @@ nan_hal_info_t info;
 #define NAN_HANDLE(info)                  ((info).nan_handle)
 #define GET_NAN_HANDLE(info)              ((NanHandle *)info.nan_handle)
 #define NAN_MAC_CONTROL(info)             ((info).nan_mac_control)
+#define GET_NAN_PAIRING_CAP(h_info)       (h_info && (h_info->nan_pairing_supported))
+#define GET_NAN_SUSPEND_CAP(h_info)       (h_info && (h_info->nan_suspend_supported))
+#define SET_NAN_PAIRING_CAP(h_info, val)  (h_info && (h_info->nan_pairing_supported = val))
+#define SET_NAN_SUSPEND_CAP(h_info, val)  (h_info && (h_info->nan_suspend_supported = val))
 
 ///////////////////////////////////////////////////////////////////////////////
 class NanHandle
@@ -765,6 +769,7 @@ class NanPairingPrimitive : public WifiCommand
             ALOGE("%s: Invalid cipher_type :%u, \n", __func__, mParams->cipher_type);
             return WIFI_ERROR_INVALID_ARGS;
         }
+
         result = request.put_u8(NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, mParams->cipher_type);
         if (result < 0) {
             ALOGE("%s: Failed to fill cipher_type type:%u, result = %d\n", __func__,
@@ -789,18 +794,20 @@ class NanPairingPrimitive : public WifiCommand
                         NAN_SECURITY_MAX_PASSPHRASE_LEN);
                 return NAN_STATUS_INVALID_PARAM;
             } else {
-                result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
-                        mParams->key_info.body.passphrase_info.passphrase_len);
-                if (result < 0) {
-                    ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
-                    return result;
-                }
-                result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
-                        (void *)mParams->key_info.body.passphrase_info.passphrase,
-                        mParams->key_info.body.passphrase_info.passphrase_len);
-                if (result < 0) {
-                    ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
-                    return result;
+                if (mParams->key_info.body.passphrase_info.passphrase_len) {
+                    result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
+                        return result;
+                    }
+                    result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
+                            (void *)mParams->key_info.body.passphrase_info.passphrase,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
+                        return result;
+                    }
                 }
             }
         } else if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
@@ -831,10 +838,14 @@ class NanPairingPrimitive : public WifiCommand
             }
         }
 
-        result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
-                NAN_IDENTITY_KEY_LEN);
-        if (result < 0) {
-          return result;
+        if (NIK_ISNULL(mParams->nan_identity_key)) {
+            ALOGI("NIK is NULL");
+        } else {
+            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                    NAN_IDENTITY_KEY_LEN);
+            if (result < 0) {
+                return result;
+            }
         }
 
         request.attr_end(data);
@@ -923,6 +934,7 @@ class NanPairingPrimitive : public WifiCommand
             ALOGE("%s: Invalid cipher_type :%u, \n", __func__, mParams->cipher_type);
             return WIFI_ERROR_INVALID_ARGS;
         }
+
         result = request.put_u8(NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, mParams->cipher_type);
         if (result < 0) {
             ALOGE("%s: Failed to fill cipher_type type:%u, result = %d\n", __func__,
@@ -946,18 +958,20 @@ class NanPairingPrimitive : public WifiCommand
                         NAN_SECURITY_MIN_PASSPHRASE_LEN, NAN_SECURITY_MAX_PASSPHRASE_LEN);
                 return NAN_STATUS_INVALID_PARAM;
             } else {
-                result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
-                        mParams->key_info.body.passphrase_info.passphrase_len);
-                if (result < 0) {
-                    ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
-                    return result;
-                }
-                result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
-                        (void *)mParams->key_info.body.passphrase_info.passphrase,
-                        mParams->key_info.body.passphrase_info.passphrase_len);
-                if (result < 0) {
-                    ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
-                    return result;
+                if (mParams->key_info.body.passphrase_info.passphrase_len) {
+                    result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
+                        return result;
+                    }
+                    result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
+                            (void *)mParams->key_info.body.passphrase_info.passphrase,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
+                        return result;
+                    }
                 }
             }
         } else if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
@@ -988,10 +1002,14 @@ class NanPairingPrimitive : public WifiCommand
             }
         }
 
-        result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
-                NAN_IDENTITY_KEY_LEN);
-        if (result < 0) {
-            return result;
+        if (NIK_ISNULL(mParams->nan_identity_key)) {
+            ALOGI("NIK is NULL");
+        } else {
+            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                    NAN_IDENTITY_KEY_LEN);
+            if (result < 0) {
+                return result;
+            }
         }
 
         request.attr_end(data);
@@ -1242,6 +1260,7 @@ class NanPairingPrimitive : public WifiCommand
                 return result;
             }
         }
+
         if (result < 0) {
           return result;
         }
@@ -1639,6 +1658,7 @@ class NanDiscEnginePrimitive : public WifiCommand
     u16 mInstId;
     u32 mPeerId;
     u16 mTxId;
+    wifi_interface_handle mIface;
 
     public:
     NanDiscEnginePrimitive(wifi_interface_handle iface, int id,
@@ -1648,6 +1668,7 @@ class NanDiscEnginePrimitive : public WifiCommand
         mInstId = 0;
         mPeerId = 0;
         setTransactionId(id);
+        setIface(iface);
     }
 
     ~NanDiscEnginePrimitive() {
@@ -1676,6 +1697,10 @@ class NanDiscEnginePrimitive : public WifiCommand
 
     void setParams(NanRequest params) {
         mParams = params;
+    }
+
+    void setIface(wifi_interface_handle iface) {
+        mIface = iface;
     }
 
     int createRequest(WifiRequest& request)
@@ -1719,6 +1744,7 @@ class NanDiscEnginePrimitive : public WifiCommand
          */
         mInstId = mParams->publish_id;
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        hal_info *h_info = getHalInfo(mIface);
 
         result = request.put_u32(NAN_ATTRIBUTE_PUBLISH_ID, mInstId);
         if (result < 0) {
@@ -2039,56 +2065,65 @@ class NanDiscEnginePrimitive : public WifiCommand
                 mParams->service_responder_policy);
         if (result < 0) {
             ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_RESPONDER_POLICY, result = %d\n",
-                        __func__, result);
-            return result;
-        }
-
-        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
                     __func__, result);
             return result;
         }
 
-        if (NIK_ISNULL(mParams->nan_identity_key)) {
-            ALOGI("NIK is NULL");
-        } else {
-            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
-                    NAN_IDENTITY_KEY_LEN);
+        ALOGI("createPublishRequest: Cached pairing %d suspend %d, mode %d\n",
+                GET_NAN_PAIRING_CAP(h_info), GET_NAN_SUSPEND_CAP(h_info), get_halutil_mode());
+
+        if (get_halutil_mode() || GET_NAN_SUSPEND_CAP(h_info)) {
+            result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE,
+                     mParams->enable_suspendability);
             if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
+                        __func__, result);
                 return result;
             }
         }
 
-        result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
-                mParams->nan_pairing_config.enable_pairing_setup);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+        if (get_halutil_mode() || GET_NAN_PAIRING_CAP(h_info)) {
+            if (NIK_ISNULL(mParams->nan_identity_key)) {
+                ALOGI("NIK is NULL");
+            } else {
+                result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                        NAN_IDENTITY_KEY_LEN);
+                if (result < 0) {
+                    return result;
+                }
+            }
 
-        result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
-                mParams->nan_pairing_config.enable_pairing_verification);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
+                    mParams->nan_pairing_config.enable_pairing_setup);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
+                        __func__, result);
+                return result;
+            }
 
-        result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
-                mParams->nan_pairing_config.enable_pairing_cache);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
+                    mParams->nan_pairing_config.enable_pairing_verification);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
+                        __func__, result);
+                return result;
+            }
 
-        result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
-                mParams->nan_pairing_config.supported_bootstrapping_methods);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n", __func__, result);
-            return result;
+            result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
+                    mParams->nan_pairing_config.enable_pairing_cache);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
+                    mParams->nan_pairing_config.supported_bootstrapping_methods);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n",
+                        __func__, result);
+                return result;
+            }
         }
 
         request.attr_end(data);
@@ -2141,6 +2176,7 @@ class NanDiscEnginePrimitive : public WifiCommand
          */
         mInstId = mParams->subscribe_id;
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        hal_info *h_info = getHalInfo(mIface);
 
         result = request.put_u16(NAN_ATTRIBUTE_SUBSCRIBE_ID, mInstId);
         if (result < 0) {
@@ -2491,52 +2527,60 @@ class NanDiscEnginePrimitive : public WifiCommand
             }
         }
 
-        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
-                    __func__, result);
-            return result;
-        }
-
-        if (NIK_ISNULL(mParams->nan_identity_key)) {
-            ALOGI("NIK is NULL");
-        } else {
-            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
-                    NAN_IDENTITY_KEY_LEN);
+        ALOGI("createSubscribeRequest: Cached pairing %d suspend %d, mode %d\n",
+                GET_NAN_PAIRING_CAP(h_info), GET_NAN_SUSPEND_CAP(h_info), get_halutil_mode());
+        if (get_halutil_mode() || GET_NAN_SUSPEND_CAP(h_info)) {
+            result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE,
+                    mParams->enable_suspendability);
             if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
+                        __func__, result);
                 return result;
             }
         }
 
-        result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
-                mParams->nan_pairing_config.enable_pairing_setup);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+        if (get_halutil_mode() || GET_NAN_PAIRING_CAP(h_info)) {
+            if (NIK_ISNULL(mParams->nan_identity_key)) {
+                ALOGI("NIK is NULL");
+            } else {
+                result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                        NAN_IDENTITY_KEY_LEN);
+                if (result < 0) {
+                    return result;
+                }
+            }
 
-        result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
-                mParams->nan_pairing_config.enable_pairing_verification);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
+                    mParams->nan_pairing_config.enable_pairing_setup);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
+                        __func__, result);
+                return result;
+            }
 
-        result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
-                mParams->nan_pairing_config.enable_pairing_cache);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
-                    __func__, result);
-            return result;
-        }
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
+                    mParams->nan_pairing_config.enable_pairing_verification);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
+                        __func__, result);
+                return result;
+            }
 
-        result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
-                mParams->nan_pairing_config.supported_bootstrapping_methods);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n", __func__, result);
-            return result;
+            result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
+                    mParams->nan_pairing_config.enable_pairing_cache);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
+                    mParams->nan_pairing_config.supported_bootstrapping_methods);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n",
+                        __func__, result);
+                return result;
+            }
         }
 
         request.attr_end(data);
@@ -2739,6 +2783,8 @@ class NanDiscEnginePrimitive : public WifiCommand
     {
         nan_hal_resp_t *rsp_vndr_data = NULL;
         NanResponseMsg rsp_data;
+        hal_info *h_info = getHalInfo(mIface);
+
         if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
             return NL_SKIP;
@@ -2796,8 +2842,20 @@ class NanDiscEnginePrimitive : public WifiCommand
             desc->ndpe_attr_supported = src->ndpe_attr_supported;
             desc->is_suspension_supported = src->is_suspension_supported;
             desc->is_pairing_supported = src->is_pairing_supported;
-            ALOGI("Capabilities pairing %u, csid 0x%x", desc->is_pairing_supported,
+            ALOGI("Capabilities pairing %u, csid 0x%x\n", desc->is_pairing_supported,
                     desc->cipher_suites_supported);
+
+            if (!get_halutil_mode()) {
+                SET_NAN_SUSPEND_CAP(h_info, desc->is_suspension_supported);
+                SET_NAN_PAIRING_CAP(h_info, desc->is_pairing_supported);
+                ALOGI("Capabilities Cached pairing %d suspend %d\n", GET_NAN_PAIRING_CAP(h_info),
+                        GET_NAN_SUSPEND_CAP(h_info));
+
+                if (!id()) {
+                    ALOGE("Skip to send the nan cap cmd response, id() %d\n", id());
+                    return NL_SKIP;
+                }
+            }
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
@@ -3367,7 +3425,8 @@ class NanDataPathPrimitive : public WifiCommand
                 result = passphrase_to_pmk(mParams->peer_disc_mac_addr, mParams->cipher_type,
                         mParams->service_name, &mParams->key_info, pmk_hex);
                 if (result < 0) {
-                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n", __func__, result);
+                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n",
+                            __func__, result);
                     return result;
                 }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN, NAN_PMK_INFO_LEN);
@@ -3556,7 +3615,8 @@ class NanDataPathPrimitive : public WifiCommand
                 result = passphrase_to_pmk(mPubNmi, mParams->cipher_type,
                         mParams->service_name, &mParams->key_info, pmk_hex);
                 if (result < 0) {
-                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n", __func__, result);
+                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n",
+                            __func__, result);
                     return result;
                 }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN, NAN_PMK_INFO_LEN);
@@ -7414,7 +7474,12 @@ wifi_error nan_data_interface_create(transaction_id id,
     ret = (wifi_error)cmd->open();
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s : failed in open, error = %d\n", __func__, ret);
+    } else if (!get_halutil_mode()) {
+        /* WAR to cache the nan capabilities */
+        ALOGI("get nan capabilities\n");
+        nan_get_capabilities(0, iface);
     }
+
     cmd->releaseRef();
 
     NAN_DBG_EXIT();
