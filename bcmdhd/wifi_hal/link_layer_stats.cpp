@@ -223,7 +223,7 @@ protected:
                     num_links = iface_ml_stat_ptr->num_links;
                     all_links_stat_size = (num_links * offsetof(wifi_link_stat, peer_info));
 
-                    if (num_links >= MAX_MLO_LINK) {
+                    if (num_links > MAX_MLO_LINK) {
                         ALOGE("Invalid num links :%d\n", num_links);
                         goto exit;
                     }
