@@ -391,6 +391,8 @@ typedef struct {
 
     wifi_chre_handler chre_nan_cb;                  // chre CB for nan status
     nan_enab_state_t nan_state;                     // Nan enable state
+    bool nan_pairing_supported;                     // Nan Pairing capability
+    bool nan_suspend_supported;                     // Nan suspend/resume capability
 
     // add other details
 } hal_info;
