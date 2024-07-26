@@ -3092,28 +3092,6 @@ class NanDiscEnginePrimitive : public WifiCommand
                 }
                 GET_NAN_HANDLE(info)->mHandlers.EventTransmitFollowup(&followup_ind);
                 break;
-#ifdef NOT_YET
-            case NAN_EVENT_PUBLISH_REPLIED_IND:
-                NanPublishRepliedInd pub_reply_event;
-                memset(&pub_reply_event, 0, sizeof(pub_reply_event));
-
-                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
-                    attr_type = it.get_type();
-
-                    if (attr_type == NAN_ATTRIBUTE_SUBSCRIBE_ID) {
-                        ALOGI("sub id: %u", it.get_u16());
-                        pub_reply_event.requestor_instance_id = it.get_u8();
-                    } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
-                        memcpy(pub_reply_event.addr, it.get_data(), NAN_MAC_ADDR_LEN);
-                        ALOGI("Subscriber mac: " MACSTR, MAC2STR(pub_reply_event.addr));
-                    } else if (attr_type == NAN_ATTRIBUTE_RSSI_PROXIMITY) {
-                        pub_reply_event.rssi_value = it.get_u8();
-                        ALOGI("Received rssi value : %u", it.get_u8());
-                    }
-                }
-                GET_NAN_HANDLE(info)->mHandlers.EventPublishReplied(&pub_reply_event);
-                break;
-#endif /* NOT_YET */
         } // end-of-switch-case
         return NL_SKIP;
     }
@@ -6950,30 +6928,6 @@ class NanEventCap : public WifiCommand
                     GET_NAN_HANDLE(info)->mHandlers.EventBeaconSdfPayload(&sdfInd);
                     break;
                 }
-#ifdef NOT_YET
-                case NAN_EVENT_PUBLISH_REPLIED_IND: {
-                    ALOGI("Received NAN_EVENT_PUBLISH_REPLIED_IND\n");
-                    NanPublishRepliedInd pub_reply_event;
-                    memset(&pub_reply_event, 0, sizeof(pub_reply_event));
-
-                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
-                        attr_type = it.get_type();
-
-                        if (attr_type == NAN_ATTRIBUTE_SUBSCRIBE_ID) {
-                            ALOGI("sub id: %u", it.get_u32());
-                            pub_reply_event.requestor_instance_id = it.get_u32();
-                        } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
-                            memcpy(pub_reply_event.addr, it.get_data(), NAN_MAC_ADDR_LEN);
-                            ALOGI("Subscriber mac: " MACSTR, MAC2STR(pub_reply_event.addr));
-                        } else if (attr_type == NAN_ATTRIBUTE_RSSI_PROXIMITY) {
-                            pub_reply_event.rssi_value = it.get_u8();
-                            ALOGI("Received rssi value : %u", it.get_u8());
-                        }
-                    }
-                    GET_NAN_HANDLE(info)->mHandlers.EventPublishReplied(&pub_reply_event);
-                    break;
-                }
-#endif /* NOT_YET */
                 case NAN_EVENT_TCA: {
                     ALOGI("Received NAN_EVENT_TCA\n");
                     //GET_NAN_HANDLE(info)->mHandlers.EventTca(&sdfPayload);
