@@ -4503,7 +4503,7 @@ void onMultiLinkStatsResults(wifi_request_id id, wifi_iface_ml_stat *iface_ml_st
     int channel_size = 0, num_channels = 0;
     int cca_avail_size = MAX_CH_BUF_SIZE;
 
-    if (!num_radios || !iface_ml_stat || !radio_stat) {
+    if (!num_radios || !radio_stat) {
         ALOGE("No valid radio stat data\n");
         return;
     }
@@ -4533,13 +4533,17 @@ void onMultiLinkStatsResults(wifi_request_id id, wifi_iface_ml_stat *iface_ml_st
             break;
         }
 
-	if (i == (num_radios - 1)) {
-	    break;
-	}
+        if (i == (num_radios - 1)) {
+            break;
+        }
         local_rx_ptr += channel_size;
         local_cca_ptr += channel_size;
     }
     /* radio stat data and channel stats data is printed in printMultiLinkStats */
+    if (!iface_ml_stat) {
+        ALOGE("No valid ml stats data\n");
+        return;
+    }
 
     buf_ptr = (u8*)iface_ml_stat;
     ml_links = iface_ml_stat->num_links;
@@ -4574,9 +4578,9 @@ void onLinkStatsResults(wifi_request_id id, wifi_iface_stat *iface_stat,
     int channel_size = 0, num_channels = 0;
     int cca_avail_size = MAX_CH_BUF_SIZE;
 
-    if (!num_radios || !iface_stat || !radio_stat) {
-            ALOGE("No valid radio stat data\n");
-            return;
+    if (!num_radios || !radio_stat) {
+        ALOGE("No valid radio stat data\n");
+        return;
     }
 
     radios = num_radios;
@@ -4603,6 +4607,11 @@ void onLinkStatsResults(wifi_request_id id, wifi_iface_stat *iface_stat,
         }
         local_rx_stat_ptr += channel_size;
         local_cca_ptr += channel_size;
+    }
+
+    if (!iface_stat) {
+        ALOGE("No valid iface stats data\n");
+        return;
     }
 
     num_peer = iface_stat->num_peers;
