@@ -60,7 +60,7 @@ const uint32_t BRCM_OUI =  0x001018;
 
 #define NAN_MAX_NDP_PEER                8u
 #define NAN_MAX_NDP_COUNT_SIZE          NAN_MAX_NDP_PEER * sizeof(NanDataPathId)
-#define SAR_CONFIG_SCENARIO_COUNT       100u
+#define SAR_CONFIG_SCENARIO_COUNT       100
 #define MAX_NUM_RADIOS                  3u
 #define MAX_CMD_RESP_BUF_LEN            8192u
 #define MAX_MLO_LINK                    3u
@@ -391,6 +391,8 @@ typedef struct {
 
     wifi_chre_handler chre_nan_cb;                  // chre CB for nan status
     nan_enab_state_t nan_state;                     // Nan enable state
+    bool nan_pairing_supported;                     // Nan Pairing capability
+    bool nan_suspend_supported;                     // Nan suspend/resume capability
 
     // add other details
 } hal_info;
