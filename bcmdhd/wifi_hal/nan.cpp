@@ -2841,10 +2841,9 @@ class NanDiscEnginePrimitive : public WifiCommand
             desc->is_instant_mode_supported = src->is_instant_mode_supported;
             desc->ndpe_attr_supported = src->ndpe_attr_supported;
             desc->is_suspension_supported = src->is_suspension_supported;
-            /* Temporarily disable NAN pairing feature capability */
-            //desc->is_pairing_supported = src->is_pairing_supported;
-            ALOGI("Capabilities pairing %u, local pairing %u csid 0x%x", desc->is_pairing_supported,
-                    src->is_pairing_supported, desc->cipher_suites_supported);
+            desc->is_pairing_supported = src->is_pairing_supported;
+            ALOGI("Capabilities pairing %u, csid 0x%x\n", desc->is_pairing_supported,
+                    desc->cipher_suites_supported);
 
             if (!get_halutil_mode()) {
                 SET_NAN_SUSPEND_CAP(h_info, desc->is_suspension_supported);

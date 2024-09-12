@@ -155,7 +155,6 @@ protected:
 
         if (!data || !data_len) {
             ALOGE("%s: null data\n", __func__);
-            ret = WIFI_ERROR_INVALID_ARGS;
             goto exit;
         }
 
@@ -198,7 +197,6 @@ protected:
             ifaceMlStatsBuf = (u8 *)malloc(MAX_CMD_RESP_BUF_LEN);
             if (!ifaceMlStatsBuf) {
                 ALOGE("No memory\n");
-                ret = WIFI_ERROR_OUT_OF_MEMORY;
                 goto exit;
             }
             outbuf_rem_len = MAX_CMD_RESP_BUF_LEN;
@@ -230,7 +228,6 @@ protected:
                 iface_ml_stat_ptr = (wifi_iface_ml_stat *)ifaceMlStatsBuf;
                 if (!iface_ml_stat_ptr) {
                     ALOGE("No iface ml stats data!!");
-                    ret = WIFI_ERROR_INVALID_ARGS;
                     goto exit;
                 }
 
@@ -238,7 +235,6 @@ protected:
                 all_links_stat_size = (num_links * offsetof(wifi_link_stat, peer_info));
                 if (num_links > MAX_MLO_LINK) {
                     ALOGE("Invalid num links :%d\n", num_links);
-                    ret = WIFI_ERROR_INVALID_ARGS;
                     goto exit;
                 }
 
@@ -252,8 +248,6 @@ protected:
                 } else {
                     ALOGE("num_links %d, Required data not found: expected len %d,"
                             " data_rem_len %d\n", num_links, all_links_stat_size, data_rem_len);
-                    ret = WIFI_ERROR_INVALID_ARGS;
-                    goto exit;
                 }
                 (*mHandler.on_multi_link_stats_results)(id,
                     (wifi_iface_ml_stat *)ifaceMlStatsBuf, num_radios,
@@ -263,28 +257,17 @@ protected:
             iface_stat = (data + offset);
             if (!iface_stat) {
                 ALOGE("No data for legacy iface stats!!, data_len = %d, offset = %d\n",
-                        data_len, offset);
-                ret = WIFI_ERROR_INVALID_ARGS;
+                    data_len, offset);
                 goto exit;
             }
             (*mHandler.on_link_stats_results)(id, (wifi_iface_stat *)iface_stat,
                 num_radios, (wifi_radio_stat *)radioStatsBuf);
         } else {
             ALOGE("No data for iface stats!!, data_len = %d, offset = %d\n",
-                    data_len, offset);
-            ret = WIFI_ERROR_INVALID_ARGS;
+                data_len, offset);
             goto exit;
         }
-
 exit:
-        /* report valid radiostat eventhough there is no linkstat info
-         * (non assoc/error case)
-         */
-        if ((ret != WIFI_SUCCESS) && num_radios && per_radio_size) {
-            (*mHandler.on_link_stats_results)(id, NULL,
-                    num_radios, (wifi_radio_stat *)radioStatsBuf);
-        }
-
         if (radioStatsBuf) {
             free(radioStatsBuf);
             radioStatsBuf = NULL;
@@ -486,12 +469,6 @@ private:
                 ALOGE("no link_stat data!!");
                 ret = WIFI_ERROR_INVALID_ARGS;
                 goto exit;
-            }
-
-            if (!links_ptr->num_peers) {
-                ALOGI("no peers in unassoc case, skip processing peer stats\n");
-                ret = WIFI_SUCCESS;
-                continue;
             }
 
             if (links_ptr->num_peers != NUM_PEER_AP) {
