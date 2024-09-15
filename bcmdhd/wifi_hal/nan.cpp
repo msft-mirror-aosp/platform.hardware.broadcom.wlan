@@ -67,6 +67,7 @@
 #define INVALID 0xFF
 #define NAN_MAX_PERIOD 16
 #define ISGREATER(i, x) (i > x) ? 1 : 0
+#define ISLESS_OR_EQUAL(i, x) (i <= x) ? 1 : 0
 #define NAN_MAX_RSSI 90
 #define NAN_SECURITY_SALT_SIZE	14
 #define NAN_MAC_INVALID_TRANSID 0xFFFF
@@ -83,6 +84,15 @@
             ((u8 *)(ea))[3] |		\
             ((u8 *)(ea))[4] |		\
             ((u8 *)(ea))[5]) == 0)
+
+#define NIK_ISNULL(nik) ((((u8 *)(nik))[0] |		\
+            ((u8 *)(nik))[1] |		\
+            ((u8 *)(nik))[2] |		\
+            ((u8 *)(nik))[3] |		\
+            ((u8 *)(nik))[4] |		\
+            ((u8 *)(nik))[5] |		\
+            ((u8 *)(nik))[6] |		\
+            ((u8 *)(nik))[7]) == 0)
 
 /* NAN structs versioning b/w DHD and HAL
  * TODO:add versions for each struct*/
@@ -113,23 +123,23 @@ static const char *NanStatusToString(NanStatusType status)
 {
     switch (status) {
         C2S(NAN_STATUS_SUCCESS)
-            C2S(NAN_STATUS_INTERNAL_FAILURE)
-            C2S(NAN_STATUS_PROTOCOL_FAILURE)
-            C2S(NAN_STATUS_INVALID_PUBLISH_SUBSCRIBE_ID)
-            C2S(NAN_STATUS_NO_RESOURCE_AVAILABLE)
-            C2S(NAN_STATUS_INVALID_PARAM)
-            C2S(NAN_STATUS_INVALID_REQUESTOR_INSTANCE_ID)
-            C2S(NAN_STATUS_INVALID_NDP_ID)
-            C2S(NAN_STATUS_NAN_NOT_ALLOWED)
-            C2S(NAN_STATUS_NO_OTA_ACK)
-            C2S(NAN_STATUS_ALREADY_ENABLED)
-            C2S(NAN_STATUS_FOLLOWUP_QUEUE_FULL)
-            C2S(NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED)
-            C2S(NAN_STATUS_INVALID_PAIRING_ID)
-            C2S(NAN_STATUS_INVALID_BOOTSTRAPPING_ID)
-            C2S(NAN_STATUS_REDUNDANT_REQUEST)
-            C2S(NAN_STATUS_NOT_SUPPORTED)
-            C2S(NAN_STATUS_NO_CONNECTION)
+        C2S(NAN_STATUS_INTERNAL_FAILURE)
+        C2S(NAN_STATUS_PROTOCOL_FAILURE)
+        C2S(NAN_STATUS_INVALID_PUBLISH_SUBSCRIBE_ID)
+        C2S(NAN_STATUS_NO_RESOURCE_AVAILABLE)
+        C2S(NAN_STATUS_INVALID_PARAM)
+        C2S(NAN_STATUS_INVALID_REQUESTOR_INSTANCE_ID)
+        C2S(NAN_STATUS_INVALID_NDP_ID)
+        C2S(NAN_STATUS_NAN_NOT_ALLOWED)
+        C2S(NAN_STATUS_NO_OTA_ACK)
+        C2S(NAN_STATUS_ALREADY_ENABLED)
+        C2S(NAN_STATUS_FOLLOWUP_QUEUE_FULL)
+        C2S(NAN_STATUS_UNSUPPORTED_CONCURRENCY_NAN_DISABLED)
+        C2S(NAN_STATUS_INVALID_PAIRING_ID)
+        C2S(NAN_STATUS_INVALID_BOOTSTRAPPING_ID)
+        C2S(NAN_STATUS_REDUNDANT_REQUEST)
+        C2S(NAN_STATUS_NOT_SUPPORTED)
+        C2S(NAN_STATUS_NO_CONNECTION)
 
         default:
             return "NAN_STATUS_INTERNAL_FAILURE";
@@ -297,7 +307,22 @@ typedef enum {
     NAN_ATTRIBUTE_INSTANT_MODE_ENABLE               = 230,
     NAN_ATTRIBUTE_INSTANT_COMM_CHAN                 = 231,
     NAN_ATTRIBUTE_CHRE_REQUEST                      = 232,
-    NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE                = 233
+    NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE                = 233,
+    NAN_ATTRIBUTE_REQUEST_TYPE                      = 234,
+    NAN_ATTRIBUTE_AKM                               = 235,
+    NAN_ATTRIBUTE_PAIRING_CACHE                     = 236,
+    NAN_ATTRIBUTE_OPPURTUNISTIC                     = 237,
+    NAN_ATTRIBUTE_BS_METHODS                        = 238,
+    NAN_ATTRIBUTE_COOKIE_LEN                        = 239,
+    NAN_ATTRIBUTE_COOKIE                            = 240,
+    NAN_ATTRIBUTE_COME_BACK_DELAY                   = 241,
+    NAN_ATTRIBUTE_NIRA_NONCE                        = 242,
+    NAN_ATTRIBUTE_NIRA_TAG                          = 243,
+    NAN_ATTRIBUTE_PEER_NIK                          = 244,
+    NAN_ATTRIBUTE_LOCAL_NIK                         = 245,
+    NAN_ATTRIBUTE_ENAB_PAIRING_SETUP                = 246,
+    NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION         = 247,
+    NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE               = 248
 } NAN_ATTRIBUTE;
 
 typedef enum {
@@ -324,6 +349,11 @@ typedef enum {
     NAN_REQUEST_ENABLE_MERGE                    = 20,
     NAN_REQUEST_SUSPEND                         = 21,
     NAN_REQUEST_RESUME                          = 22,
+    NAN_PAIRING_REQUEST                         = 23,
+    NAN_PAIRING_IND_RESPONSE                    = 24,
+    NAN_PAIRING_END_REQUEST                     = 25,
+    NAN_BOOTSTRAPPING_REQUEST                   = 26,
+    NAN_BOOTSTRAPPING_IND_RESPONSE              = 27,
     NAN_REQUEST_LAST                            = 0xFFFF
 } NanRequestType;
 
@@ -357,7 +387,7 @@ enum nan_de_event_type {
     NAN_EVENT_START       = 1,
     NAN_EVENT_JOIN        = 2,
     NAN_EVENT_ROLE_CHANGE = 3,
-    NAN_EVENT_MERGE       = 4
+    NAN_EVENT_MERGE       = 10
 };
 
 typedef struct _nan_hal_resp {
@@ -383,12 +413,14 @@ typedef struct _nan_hal_info {
     void *nan_mac_control;
     void *nan_disc_control;
     void *nan_dp_control;
+    void *nan_pairing_control;
 } nan_hal_info_t;
 
 u8 mNmi[NAN_MAC_ADDR_LEN];
 /* Static functions */
 static int is_de_event(int cmd);
 static int is_dp_event(int cmd);
+static int is_pairing_event(int cmd);
 static int is_cmd_response(int cmd);
 
 static int get_svc_hash(unsigned char *svc_name, u16 svc_name_len,
@@ -434,6 +466,25 @@ static int is_dp_event(int cmd) {
             break;
     }
     return is_dp_evt;
+}
+
+/* Function to separate NAN4.0 pairing specific events */
+static int is_pairing_event(int cmd) {
+    bool is_pairing_evt = false;
+
+    switch (cmd) {
+        case NAN_EVENT_PAIRING_REQUEST:
+        case NAN_EVENT_PAIRING_CONFIRMATION:
+        case NAN_EVENT_PAIRING_END:
+        case NAN_EVENT_BOOTSTRAPPING_REQUEST:
+        case NAN_EVENT_BOOTSTRAPPING_CONFIRMATION:
+            is_pairing_evt = true;
+            break;
+        default:
+            /* Not used */
+            break;
+    }
+    return is_pairing_evt;
 }
 
 static int is_cmd_response(int cmd) {
@@ -497,7 +548,6 @@ static NanStatusType nan_map_response_status (int vendor_status) {
     return hal_status;
 }
 
-static void prhex(const char *msg, u8 *buf, u32 nbytes);
 static const char *NanAttrToString(u16 cmd);
 static const char *NanCmdToString(int cmd);
 static const char *NanRspToString(int cmd);
@@ -523,7 +573,7 @@ static int passphrase_to_pmk(u8 *peer_mac, u32 cipher_type,
         return WIFI_ERROR_INVALID_ARGS;
     }
     if (key_info->body.passphrase_info.passphrase_len < NAN_SECURITY_MIN_PASSPHRASE_LEN ||
-            key_info->body.passphrase_info.passphrase_len > NAN_SECURITY_MAX_PASSPHRASE_LEN) {
+                key_info->body.passphrase_info.passphrase_len > NAN_SECURITY_MAX_PASSPHRASE_LEN) {
         ALOGE("passphrase must be between %d and %d characters long\n",
                 NAN_SECURITY_MIN_PASSPHRASE_LEN,
                 NAN_SECURITY_MAX_PASSPHRASE_LEN);
@@ -531,10 +581,10 @@ static int passphrase_to_pmk(u8 *peer_mac, u32 cipher_type,
     }
 
     result = PKCS5_PBKDF2_HMAC((const char *) key_info->body.passphrase_info.passphrase,
-            key_info->body.passphrase_info.passphrase_len, salt, sizeof(salt),
-            4096, ((cipher_type == NAN_CIPHER_SUITE_SHARED_KEY_128_MASK) ?
-                (const EVP_MD *)EVP_sha256():(const EVP_MD *)EVP_sha384()), NAN_PMK_INFO_LEN,  pmk_hex);
-    prhex("PMK_HEX", pmk_hex, 32);
+                key_info->body.passphrase_info.passphrase_len, salt, sizeof(salt),
+                4096, ((cipher_type == NAN_CIPHER_SUITE_SHARED_KEY_128_MASK) ?
+                (const EVP_MD *)EVP_sha256():(const EVP_MD *)EVP_sha384()),
+                        NAN_PMK_INFO_LEN,  pmk_hex);
     NAN_DBG_EXIT();
     return result;
 }
@@ -549,6 +599,10 @@ nan_hal_info_t info;
 #define NAN_HANDLE(info)                  ((info).nan_handle)
 #define GET_NAN_HANDLE(info)              ((NanHandle *)info.nan_handle)
 #define NAN_MAC_CONTROL(info)             ((info).nan_mac_control)
+#define GET_NAN_PAIRING_CAP(h_info)       (h_info && (h_info->nan_pairing_supported))
+#define GET_NAN_SUSPEND_CAP(h_info)       (h_info && (h_info->nan_suspend_supported))
+#define SET_NAN_PAIRING_CAP(h_info, val)  (h_info && (h_info->nan_pairing_supported = val))
+#define SET_NAN_SUSPEND_CAP(h_info, val)  (h_info && (h_info->nan_suspend_supported = val))
 
 ///////////////////////////////////////////////////////////////////////////////
 class NanHandle
@@ -574,8 +628,9 @@ void HandleExpiryEvent(nan_hal_info_t info, nlattr *vendor_data) {
             expired_event.publish_subscribe_id);
         } else if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
             expired_event.requestor_instance_id = it.get_u32();
-            ALOGI("req_inst id = %u\n", expired_event.requestor_instance_id);
-       }
+            ALOGI("req_inst id = %u\n",
+                expired_event.requestor_instance_id);
+        }
     }
 
     if (expired_event.requestor_instance_id && expired_event.publish_subscribe_id) {
@@ -586,6 +641,1016 @@ void HandleExpiryEvent(nan_hal_info_t info, nlattr *vendor_data) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+class NanPairingPrimitive : public WifiCommand
+{
+    NanRequest mParams;
+    NanRequestType mType;
+    u16 mInstId;
+    u32 mPeerId;
+    u16 mTxId;
+
+    public:
+    NanPairingPrimitive(wifi_interface_handle iface, int id,
+            NanRequest params, NanRequestType cmdType)
+        : WifiCommand("NanCommand", iface, id), mParams(params), mType(cmdType)
+    {
+        mInstId = 0;
+        mPeerId = 0;
+        setTransactionId(id);
+    }
+
+    ~NanPairingPrimitive() {
+        ALOGE("NanPairingPrimitive destroyed\n");
+    }
+
+    void setType(NanRequestType type) {
+        mType = type;
+    }
+
+    void setTransactionId(u16 tx_id) {
+        mTxId = tx_id;
+    }
+
+    int getTransactionId() {
+        return mTxId;
+    }
+
+    int createRequest(WifiRequest& request)
+    {
+        if (mType == NAN_PAIRING_REQUEST) {
+            return createPairingRequest(request, (NanPairingRequest *)mParams);
+        } else if (mType == NAN_PAIRING_IND_RESPONSE) {
+            return createPairingIndResponse(request, (NanPairingIndicationResponse *)mParams);
+        } else if (mType == NAN_PAIRING_END_REQUEST) {
+            return createPairingEndRequest(request, (NanPairingEndRequest *)mParams);
+        } else if (mType == NAN_BOOTSTRAPPING_REQUEST) {
+            return createBootstrappingRequest(request, (NanBootstrappingRequest *)mParams);
+        } else if (mType == NAN_BOOTSTRAPPING_IND_RESPONSE) {
+            return createBootstrappingIndResponse(request,
+                    (NanBootstrappingIndicationResponse *)mParams);
+        } else {
+            ALOGE("%s Unknown Nan request in PairingPrimitive\n", __func__);
+        }
+        return WIFI_SUCCESS;
+    }
+
+    int createPairingRequest(WifiRequest& request, NanPairingRequest *mParams)
+    {
+        mTxId = getTransactionId();
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_PAIRING_REQUEST);
+        if (result < 0) {
+            ALOGE("%s Failed to create pairing request\n", __func__);
+            return result;
+        }
+
+        NAN_DBG_ENTER();
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        result = request.put_u32(NAN_ATTRIBUTE_PEER_ID, mParams->requestor_instance_id);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill svc id, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_TRANSAC_ID, mTxId);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_TRANSAC_ID, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        result = request.put_addr(NAN_ATTRIBUTE_MAC_ADDR, mParams->peer_disc_mac_addr);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill mac addr, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->nan_pairing_request_type < NAN_PAIRING_SETUP) ||
+                (mParams->nan_pairing_request_type > NAN_PAIRING_VERIFICATION)) {
+            ALOGE("%s: Invalid pairing request type :%u\n", __func__,
+                    mParams->nan_pairing_request_type);
+            return WIFI_ERROR_INVALID_ARGS;
+        } else {
+            result = request.put_u16(NAN_ATTRIBUTE_REQUEST_TYPE, mParams->nan_pairing_request_type);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill request type:%u, result = %d\n", __func__,
+                        mParams->nan_pairing_request_type, result);
+                return result;
+            }
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_OPPURTUNISTIC, mParams->is_opportunistic);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill is_opputunistic, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->akm < SAE) || (mParams->akm > PASN)) {
+            ALOGE("%s: invalid AKM type:%u \n", __func__, mParams->akm);
+            return WIFI_ERROR_INVALID_ARGS;
+        } else {
+            result = request.put_u8(NAN_ATTRIBUTE_AKM, mParams->akm);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill AKM type:%u, result = %d\n", __func__,
+                        mParams->akm, result);
+                return result;
+            }
+        }
+
+        result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE, mParams->enable_pairing_cache);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill enable pairing cache, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->cipher_type != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK) &&
+                (mParams->cipher_type != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)) {
+            ALOGE("%s: Invalid cipher_type :%u, \n", __func__, mParams->cipher_type);
+            return WIFI_ERROR_INVALID_ARGS;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, mParams->cipher_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill cipher_type type:%u, result = %d\n", __func__,
+                    mParams->cipher_type, result);
+            return result;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_KEY_TYPE, mParams->key_info.key_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_KEY_TYPE, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
+            if ((mParams->key_info.body.passphrase_info.passphrase_len <
+                    NAN_SECURITY_MIN_PASSPHRASE_LEN) ||
+                    (mParams->key_info.body.passphrase_info.passphrase_len >
+                    NAN_SECURITY_MAX_PASSPHRASE_LEN)) {
+                ALOGE("password must be between %d and %d characters long\n",
+                        NAN_SECURITY_MIN_PASSPHRASE_LEN,
+                        NAN_SECURITY_MAX_PASSPHRASE_LEN);
+                return NAN_STATUS_INVALID_PARAM;
+            } else {
+                if (mParams->key_info.body.passphrase_info.passphrase_len) {
+                    result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
+                        return result;
+                    }
+                    result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
+                            (void *)mParams->key_info.body.passphrase_info.passphrase,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
+                        return result;
+                    }
+                }
+            }
+        } else if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
+            if ((!mParams->key_info.body.pmk_info.pmk_len) ||
+                    (mParams->key_info.body.pmk_info.pmk_len != NAN_PMK_INFO_LEN)) {
+                ALOGE("%s: Invalid pmk len: %d, result = %d\n", __func__,
+                        mParams->key_info.body.pmk_info.pmk_len, result);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                    mParams->key_info.body.pmk_info.pmk_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill pmk len, result = %d\n", __func__, result);
+                return result;
+            }
+            result = request.put(NAN_ATTRIBUTE_KEY_DATA,
+                    (void *)mParams->key_info.body.pmk_info.pmk,
+                    mParams->key_info.body.pmk_info.pmk_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill pmk, result = %d\n", __func__, result);
+                return result;
+            }
+        } else {
+            if (!mParams->is_opportunistic) {
+                ALOGE("%s: Unexpected Key_type received: %u  (no PASSPHRASE/PMK), result = %d\n",
+                        __func__, mParams->key_info.key_type, result);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+        }
+
+        if (NIK_ISNULL(mParams->nan_identity_key)) {
+            ALOGI("NIK is NULL");
+        } else {
+            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                    NAN_IDENTITY_KEY_LEN);
+            if (result < 0) {
+                return result;
+            }
+        }
+
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int createPairingIndResponse(WifiRequest& request, NanPairingIndicationResponse *mParams)
+    {
+        mTxId = getTransactionId();
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_PAIRING_RESPONSE);
+        if (result < 0) {
+            ALOGE("%s Failed to create pairing indication response \n", __func__);
+            return result;
+        }
+
+        NAN_DBG_ENTER();
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        mInstId = mParams->pairing_instance_id;
+        if (ISGREATER(mInstId, NAN_MAX) || (ISLESS_OR_EQUAL(mInstId, NAN_MIN))) {
+            ALOGE("%s:Invalid Pairing ID: %u \n", __func__, mInstId);
+            return WIFI_ERROR_NOT_SUPPORTED;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->pairing_instance_id);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill pairing id, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_TRANSAC_ID, mTxId);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_TRANSAC_ID, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_RSP_CODE, mParams->rsp_code);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill Response code, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->nan_pairing_request_type < NAN_PAIRING_SETUP) ||
+                (mParams->nan_pairing_request_type > NAN_PAIRING_VERIFICATION)) {
+            ALOGE("%s: Invalid pairing request type :%u\n", __func__,
+                    mParams->nan_pairing_request_type);
+            return WIFI_ERROR_INVALID_ARGS;
+        } else {
+            result = request.put_u16(NAN_ATTRIBUTE_REQUEST_TYPE, mParams->nan_pairing_request_type);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill request type:%u, result = %d\n", __func__,
+                        mParams->nan_pairing_request_type, result);
+                return result;
+            }
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_OPPURTUNISTIC, mParams->is_opportunistic);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill is_opputunistic, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->akm < SAE) || (mParams->akm > PASN)) {
+            ALOGE("%s: invalid AKM type:%u \n", __func__, mParams->akm);
+            return WIFI_ERROR_INVALID_ARGS;
+        } else {
+            result = request.put_u8(NAN_ATTRIBUTE_AKM, mParams->akm);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill AKM type:%u, result = %d\n", __func__,
+                        mParams->akm, result);
+                return result;
+            }
+        }
+
+        result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE, mParams->enable_pairing_cache);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill enable pairing cache, result = %d\n", __func__, result);
+            return result;
+        }
+
+        if ((mParams->cipher_type != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK) &&
+                (mParams->cipher_type != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)) {
+            ALOGE("%s: Invalid cipher_type :%u, \n", __func__, mParams->cipher_type);
+            return WIFI_ERROR_INVALID_ARGS;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_CIPHER_SUITE_TYPE, mParams->cipher_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill cipher_type type:%u, result = %d\n", __func__,
+                    mParams->cipher_type, result);
+            return result;
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_KEY_TYPE, mParams->key_info.key_type);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_KEY_TYPE, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
+            if ((mParams->key_info.body.passphrase_info.passphrase_len <
+                    NAN_SECURITY_MIN_PASSPHRASE_LEN) ||
+                    (mParams->key_info.body.passphrase_info.passphrase_len >
+                    NAN_SECURITY_MAX_PASSPHRASE_LEN)) {
+                ALOGE("password must be between %d and %d characters long\n",
+                        NAN_SECURITY_MIN_PASSPHRASE_LEN, NAN_SECURITY_MAX_PASSPHRASE_LEN);
+                return NAN_STATUS_INVALID_PARAM;
+            } else {
+                if (mParams->key_info.body.passphrase_info.passphrase_len) {
+                    result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill password len, result = %d\n", __func__, result);
+                        return result;
+                    }
+                    result = request.put(NAN_ATTRIBUTE_KEY_DATA_PASSPHRASE,
+                            (void *)mParams->key_info.body.passphrase_info.passphrase,
+                            mParams->key_info.body.passphrase_info.passphrase_len);
+                    if (result < 0) {
+                        ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
+                        return result;
+                    }
+                }
+            }
+        } else if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
+            if ((!mParams->key_info.body.pmk_info.pmk_len) ||
+                    (mParams->key_info.body.pmk_info.pmk_len != NAN_PMK_INFO_LEN)) {
+                ALOGE("%s: Invalid pmk len: %d, result = %d\n", __func__,
+                        mParams->key_info.body.pmk_info.pmk_len, result);
+                return NAN_STATUS_INVALID_PARAM;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
+                    mParams->key_info.body.pmk_info.pmk_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill pmk len, result = %d\n", __func__, result);
+                return result;
+            }
+            result = request.put(NAN_ATTRIBUTE_KEY_DATA,
+                    (void *)mParams->key_info.body.pmk_info.pmk,
+                    mParams->key_info.body.pmk_info.pmk_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill pmk, result = %d\n", __func__, result);
+                return result;
+            }
+        } else {
+            if (!mParams->is_opportunistic) {
+                ALOGE("%s: Unexpected Key_type received: %u  (no PASSPHRASE/PMK), result = %d\n",
+                        __func__, mParams->key_info.key_type, result);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+        }
+
+        if (NIK_ISNULL(mParams->nan_identity_key)) {
+            ALOGI("NIK is NULL");
+        } else {
+            result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                    NAN_IDENTITY_KEY_LEN);
+            if (result < 0) {
+                return result;
+            }
+        }
+
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int createPairingEndRequest(WifiRequest& request, NanPairingEndRequest *mParams)
+    {
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_PAIRING_END);
+        if (result < 0) {
+            ALOGE("%s Failed to create Pairing End request\n", __func__);
+            return result;
+        }
+
+        NAN_DBG_ENTER();
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        mInstId = mParams->pairing_instance_id;
+        if (ISGREATER(mInstId, NAN_MAX) || (ISLESS_OR_EQUAL(mInstId, NAN_MIN))) {
+            ALOGE("%s:Invalid Pairing ID: %u \n", __func__, mInstId);
+            return WIFI_ERROR_NOT_SUPPORTED;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mInstId);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill pairing id, result = %d\n", __func__, result);
+            return result;
+        }
+
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int createBootstrappingIndResponse(WifiRequest& request,
+            NanBootstrappingIndicationResponse *mParams)
+    {
+        mTxId = getTransactionId();
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_BOOTSTRAPPING_RESPONSE);
+        if (result < 0) {
+            ALOGE("%s Failed to create Bootstrapping response \n", __func__);
+            return result;
+        }
+
+        NAN_DBG_ENTER();
+
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        result = request.put_u32(NAN_ATTRIBUTE_PEER_ID, mParams->service_instance_id);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill Requested Instance id, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+        if (result < 0) {
+            ALOGE("%s Failed to fill local inst id= %d\n", __func__, mParams->publish_subscribe_id);
+            return result;
+        }
+
+        result = request.put_addr(NAN_ATTRIBUTE_MAC_ADDR, mParams->peer_disc_mac_addr);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill mac addr, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_TRANSAC_ID, mTxId);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_TRANSAC_ID, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        if (mParams->service_specific_info_len) {
+            result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
+                    mParams->service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill svc info len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            result = request.put(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO,
+                    (void *)mParams->service_specific_info, mParams->service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill svc info, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->sdea_service_specific_info_len) {
+            result = request.put_u16(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN,
+                    mParams->sdea_service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sdea svc info len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            prhex(NULL, mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
+            result = request.put(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO,
+                    (void *)mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sdea svc info, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->cookie_length) {
+            if (mParams->cookie_length > NAN_MAX_COOKIE_LEN) {
+                ALOGE("%s: Failed to fill cookie len, Invalid cookie len = %d\n", __func__,
+                       mParams->cookie_length);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_COOKIE_LEN, mParams->cookie_length);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill cookie len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            prhex("Cookie:", mParams->cookie, mParams->cookie_length);
+            result = request.put(NAN_ATTRIBUTE_COOKIE,
+                    (void *)mParams->cookie, mParams->cookie_length);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill cookie info, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        result = request.put_u8(NAN_ATTRIBUTE_RSP_CODE, mParams->rsp_code);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill Response code, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u32(NAN_ATTRIBUTE_COME_BACK_DELAY, mParams->come_back_delay);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill comeback delay, result = %d\n", __func__, result);
+            return result;
+        }
+
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int createBootstrappingRequest(WifiRequest& request, NanBootstrappingRequest *mParams)
+    {
+        mTxId = getTransactionId();
+        int result = request.create(GOOGLE_OUI, NAN_SUBCMD_BOOTSTRAPPING_REQUEST);
+        if (result < 0) {
+            ALOGE("%s Failed to create Bootstrapping request \n", __func__);
+            return result;
+        }
+
+        NAN_DBG_ENTER();
+
+        /* If handle is 0xFFFF, then update instance_id in response of this request
+         * otherwise, update not needed
+         */
+        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+
+        result = request.put_u32(NAN_ATTRIBUTE_PEER_ID, mParams->requestor_instance_id);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill Requestor Instance id, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
+        if (result < 0) {
+            ALOGE("%s Failed to fill local inst id= %d\n", __func__, mParams->publish_subscribe_id);
+            return result;
+        }
+
+        result = request.put_addr(NAN_ATTRIBUTE_MAC_ADDR, mParams->peer_disc_mac_addr);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill mac addr, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS, mParams->request_bootstrapping_method);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill Supported BS methods, result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = request.put_u16(NAN_ATTRIBUTE_TRANSAC_ID, mTxId);
+        if (result < 0) {
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_TRANSAC_ID, result = %d\n",
+                    __func__, result);
+            return result;
+        }
+
+        if (mParams->service_specific_info_len) {
+            result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
+                    mParams->service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill svc info len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            result = request.put(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO,
+                    (void *)mParams->service_specific_info, mParams->service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill svc info, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->sdea_service_specific_info_len) {
+            result = request.put_u16(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN,
+                    mParams->sdea_service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sdea svc info len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            prhex(NULL, mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
+            result = request.put(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO,
+                    (void *)mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill sdea svc info, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (mParams->cookie_length) {
+            if (mParams->cookie_length > NAN_MAX_COOKIE_LEN) {
+                ALOGE("%s: Failed to fill cookie len, Invalid cookie len = %d\n", __func__,
+                       mParams->cookie_length);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+            result = request.put_u32(NAN_ATTRIBUTE_COOKIE_LEN, mParams->cookie_length);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill cookie len, result = %d\n", __func__, result);
+                return result;
+            }
+
+            prhex("Cookie:", mParams->cookie, mParams->cookie_length);
+            result = request.put(NAN_ATTRIBUTE_COOKIE,
+                    (void *)mParams->cookie, mParams->cookie_length);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill cookie, result = %d\n", __func__, result);
+                return result;
+            }
+        }
+
+        if (result < 0) {
+          return result;
+        }
+
+        request.attr_end(data);
+        NAN_DBG_EXIT();
+        return WIFI_SUCCESS;
+    }
+
+    int start()
+    {
+        int result = 0;
+        WifiRequest request(familyId(), ifaceId());
+        result = createRequest(request);
+        if (result != WIFI_SUCCESS) {
+            ALOGE("%s: Failed to create setup request; result = %d\n", __func__, result);
+            return result;
+        }
+
+        result = requestResponse(request);
+        if (result != WIFI_SUCCESS) {
+            ALOGE("%s: Failed to configure setup; result = %d\n", __func__, result);
+            return result;
+        }
+
+        request.destroy();
+        return WIFI_SUCCESS;
+    }
+
+    virtual bool valid_pairing_response_type(int response_type) {
+        bool valid = false;
+        switch (response_type) {
+            case NAN_PAIRING_INITIATOR_RESPONSE:
+            case NAN_PAIRING_RESPONDER_RESPONSE:
+            case NAN_PAIRING_END:
+            case NAN_BOOTSTRAPPING_INITIATOR_RESPONSE:
+            case NAN_BOOTSTRAPPING_RESPONDER_RESPONSE:
+                valid = true;
+                break;
+            default:
+                ALOGE("NanPairingPrimitive:Unknown cmd Response: %d\n", response_type);
+                break;
+        }
+        return valid;
+    }
+
+    int handleResponse(WifiEvent& reply)
+    {
+        nan_hal_resp_t *rsp_vndr_data = NULL;
+        NanResponseMsg rsp_data;
+        if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
+            ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
+            return NL_SKIP;
+        }
+        rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
+        ALOGI("NanDiscEnginePrmitive::handle response\n");
+        memset(&rsp_data, 0, sizeof(NanResponseMsg));
+        rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
+        if (!valid_pairing_response_type(rsp_data.response_type))
+            return NL_SKIP;
+
+        rsp_data.status = nan_map_response_status(rsp_vndr_data->status);
+        ALOGE("Mapped hal status = %d\n", rsp_data.status);
+        if (rsp_vndr_data->nan_reason[0] == '\0') {
+            memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
+                    strlen(NanStatusToString(rsp_data.status)));
+            rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
+        }
+        rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
+        ALOGI("\n Received nan_error string %s\n", (u8*)rsp_data.nan_error);
+
+        if (rsp_data.response_type == NAN_PAIRING_INITIATOR_RESPONSE) {
+            rsp_data.body.pairing_request_response.paring_instance_id =
+	            rsp_vndr_data->instance_id;
+            ALOGI("Received Pairing instance_id %d\n", rsp_vndr_data->instance_id);
+        } else if (rsp_data.response_type == NAN_BOOTSTRAPPING_INITIATOR_RESPONSE) {
+            rsp_data.body.bootstrapping_request_response.bootstrapping_instance_id =
+                    rsp_vndr_data->instance_id;
+            ALOGI("Received BS instance_id %d\n", rsp_vndr_data->instance_id);
+        }
+
+        GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
+        ALOGI("NanPairingPrimitive: Received response for cmd [%s], ret %d\n",
+                NanRspToString(rsp_data.response_type), rsp_data.status);
+
+        return NL_SKIP;
+    }
+
+    int handleEvent(WifiEvent& event)
+    {
+        int cmd = event.get_vendor_subcmd();
+        u16 attr_type;
+
+        ALOGI("Received NanPairingPrimitive event: %d\n", event.get_cmd());
+        nlattr *vendor_data = event.get_attribute(NL80211_ATTR_VENDOR_DATA);
+
+        switch (cmd) {
+            case NAN_EVENT_PAIRING_REQUEST:
+                NanPairingRequestInd pairing_request_event;
+                memset(&pairing_request_event, 0, sizeof(NanPairingRequestInd));
+                ALOGI("Received NAN_EVENT_PAIRING_REQUEST\n");
+
+                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                    attr_type = it.get_type();
+
+                    if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
+                        ALOGI("publish_subscribe_id: %u\n", it.get_u16());
+                        pairing_request_event.publish_subscribe_id = it.get_u16();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_SUBSCRIBE_ID) {
+                        ALOGI("Requestor instance id: %u\n", it.get_u32());
+                        pairing_request_event.requestor_instance_id = it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
+                        memcpy(pairing_request_event.peer_disc_mac_addr,
+                                it.get_data(), NAN_MAC_ADDR_LEN);
+                        ALOGI("Discovery MAC addr of the peer/initiator: " MACSTR "\n",
+                                MAC2STR(pairing_request_event.peer_disc_mac_addr));
+
+                    } else if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                        u32 pairing_id = it.get_u32();
+                        ALOGI("pairing instance id: %u\n", pairing_id);
+
+                        if (ISGREATER(pairing_id, NAN_MAX) ||
+                                  (ISLESS_OR_EQUAL(pairing_id, NAN_MIN))) {
+                            ALOGE("%s:Invalid Pairing ID: %u \n", __func__, pairing_id);
+                            goto fail;
+                        }
+                        pairing_request_event.pairing_instance_id = pairing_id;
+
+                    } else if (attr_type == NAN_ATTRIBUTE_REQUEST_TYPE) {
+                        ALOGI("Pairing request type: %u\n", it.get_u16());
+                        pairing_request_event.nan_pairing_request_type =
+                                (NanPairingRequestType)it.get_u16();
+                        if ((pairing_request_event.nan_pairing_request_type >
+                                NAN_PAIRING_VERIFICATION) ||
+                                (pairing_request_event.nan_pairing_request_type <
+                                NAN_PAIRING_SETUP)) {
+                            ALOGI("INVALID Pairing request type %u\n",
+                                    pairing_request_event.nan_pairing_request_type);
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                        ALOGI("Pairing cache enabled: %u\n", (u8)it.get_u32());
+                        pairing_request_event.enable_pairing_cache = (u8)it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_NIRA_TAG) {
+                        memcpy(pairing_request_event.nira.tag, it.get_data(), NAN_IDENTITY_TAG_LEN);
+                        prhex("NIRA tag", pairing_request_event.nira.tag, NAN_IDENTITY_TAG_LEN);
+
+                    } else if (attr_type == NAN_ATTRIBUTE_NIRA_NONCE) {
+                        memcpy(pairing_request_event.nira.nonce, it.get_data(),
+                                NAN_IDENTITY_NONCE_LEN);
+                        prhex("NIRA nonce", pairing_request_event.nira.nonce,
+                                NAN_IDENTITY_NONCE_LEN);
+                    }
+
+                }
+
+                if (!pairing_request_event.publish_subscribe_id ||
+                        !pairing_request_event.pairing_instance_id) {
+                    ALOGE("Check invalid params received pub_sub_id: 0x%x pairing_id: %u\n",
+                            pairing_request_event.publish_subscribe_id,
+                            pairing_request_event.pairing_instance_id);
+                    goto fail;
+                }
+
+                GET_NAN_HANDLE(info)->mHandlers.EventPairingRequest(&pairing_request_event);
+                break;
+            case NAN_EVENT_PAIRING_CONFIRMATION: {
+                NanPairingConfirmInd pairing_confirm_event;
+                u32 pmk_len = 0;
+                memset(&pairing_confirm_event, 0, sizeof(NanPairingConfirmInd));
+                ALOGI("Received NAN_EVENT_PAIRING_CONFIRMATION\n");
+
+                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                    attr_type = it.get_type();
+
+                    if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                        ALOGI("pairing instance id: %u\n", it.get_u32());
+                        pairing_confirm_event.pairing_instance_id = it.get_u32();
+                        if ((pairing_confirm_event.pairing_instance_id <= NAN_MIN) ||
+                                (pairing_confirm_event.pairing_instance_id > NAN_MAX)) {
+                            ALOGE("INVALID Pairing instance id: %u\n",
+                                    pairing_confirm_event.pairing_instance_id);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
+                        ALOGI("response code: %u\n", (NanPairingResponseCode)it.get_u8());
+                        pairing_confirm_event.rsp_code = (NanPairingResponseCode)it.get_u8();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                        ALOGI("reason_code: %u\n", (NanStatusType)it.get_u8());
+                        pairing_confirm_event.reason_code = (NanStatusType)it.get_u8();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_REQUEST_TYPE) {
+                        ALOGI("Pairing request type: %u\n", (NanPairingRequestType)it.get_u16());
+                        pairing_confirm_event.nan_pairing_request_type =
+                                (NanPairingRequestType)it.get_u16();
+                        if ((pairing_confirm_event.nan_pairing_request_type >
+                                NAN_PAIRING_VERIFICATION) ||
+                                (pairing_confirm_event.nan_pairing_request_type <
+                                NAN_PAIRING_SETUP)) {
+                            ALOGI("INVALID Pairing request type %u\n",
+                                    pairing_confirm_event.nan_pairing_request_type);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                        ALOGI("Pairing cache enabled: %u\n", (u8)it.get_u32());
+                        pairing_confirm_event.enable_pairing_cache = (u8)it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_PEER_NIK) {
+                        memcpy(pairing_confirm_event.npk_security_association.peer_nan_identity_key,
+                                it.get_data(), NAN_IDENTITY_KEY_LEN);
+                        prhex("Peer NIK:",
+                            pairing_confirm_event.npk_security_association.peer_nan_identity_key,
+                            NAN_IDENTITY_KEY_LEN);
+
+                    } else if (attr_type == NAN_ATTRIBUTE_LOCAL_NIK) {
+                        memcpy(pairing_confirm_event.npk_security_association.local_nan_identity_key,
+                                it.get_data(), NAN_IDENTITY_KEY_LEN);
+                        prhex("Local NIK:",
+                            pairing_confirm_event.npk_security_association.local_nan_identity_key,
+                            NAN_IDENTITY_KEY_LEN);
+
+                    } else if (attr_type == NAN_ATTRIBUTE_AKM) {
+                        ALOGI("akm: %u\n", (NanAkm)it.get_u8());
+                        pairing_confirm_event.npk_security_association.akm = (NanAkm)it.get_u8();
+                        if ((pairing_confirm_event.npk_security_association.akm >
+                                PASN) || (pairing_confirm_event.npk_security_association.akm <
+                                SAE)) {
+                            ALOGI("INVALID Pairing AKM type %u\n",
+                                    pairing_confirm_event.npk_security_association.akm);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_CIPHER_SUITE_TYPE) {
+                        u32 csid = it.get_u32();
+                        ALOGI("csid: 0x%x\n", csid);
+                        pairing_confirm_event.npk_security_association.cipher_type = csid;
+                        if ((csid != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK) &&
+                                (csid != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)) {
+                            ALOGE("%s: Invalid cipher_type received :0x%x \n", __func__, csid);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_KEY_LEN) {
+                        ALOGI("pmk len: %u\n", it.get_u32());
+                        pmk_len = it.get_u32();
+                        pairing_confirm_event.npk_security_association.npk.pmk_len = pmk_len;
+
+                    } else if (attr_type == NAN_ATTRIBUTE_KEY_DATA) {
+                        memcpy(&pairing_confirm_event.npk_security_association.npk.pmk,
+                                it.get_data(),
+                                pairing_confirm_event.npk_security_association.npk.pmk_len);
+                        prhex("NPK", (u8 *)pairing_confirm_event.npk_security_association.npk.pmk,
+                                pairing_confirm_event.npk_security_association.npk.pmk_len);
+
+                    }
+                }
+
+                if (!pairing_confirm_event.npk_security_association.cipher_type ||
+                        !pairing_confirm_event.npk_security_association.npk.pmk_len ||
+                        !pairing_confirm_event.pairing_instance_id) {
+                    ALOGE("Check invalid params received csid: 0x%x pmk_len: %u pairing_id: %u\n",
+                            pairing_confirm_event.npk_security_association.cipher_type,
+                            pairing_confirm_event.npk_security_association.npk.pmk_len,
+                            pairing_confirm_event.pairing_instance_id);
+                    goto fail;
+                }
+
+                GET_NAN_HANDLE(info)->mHandlers.EventPairingConfirm(&pairing_confirm_event);
+                break;
+            }
+            case NAN_EVENT_BOOTSTRAPPING_REQUEST:
+                NanBootstrappingRequestInd bs_request_event;
+                memset(&bs_request_event, 0, sizeof(NanBootstrappingRequestInd));
+                ALOGI("Received NAN_EVENT_BOOTSTRAPPING_REQUEST\n");
+
+                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                    attr_type = it.get_type();
+
+                    if (attr_type == NAN_ATTRIBUTE_SUBSCRIBE_ID) {
+                        ALOGI("publish_subscribe_id: %u\n", it.get_u16());
+                        bs_request_event.publish_subscribe_id = it.get_u16();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
+                        ALOGI("requestor_instance_id: %u\n", it.get_u32());
+                        bs_request_event.requestor_instance_id = it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
+                        memcpy(bs_request_event.peer_disc_mac_addr,
+                                it.get_data(), NAN_MAC_ADDR_LEN);
+                        ALOGI("Discovery MAC addr of the peer/initiator: " MACSTR "\n",
+                                MAC2STR(bs_request_event.peer_disc_mac_addr));
+
+                    } else if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                        ALOGI("BS instance id: %u\n", it.get_u32());
+                        bs_request_event.bootstrapping_instance_id = it.get_u32();
+                        if ((bs_request_event.bootstrapping_instance_id <= NAN_MIN) ||
+                                (bs_request_event.bootstrapping_instance_id > NAN_MAX)) {
+                            ALOGE("INVALID bootstrapping instance id: %u\n",
+                                    bs_request_event.bootstrapping_instance_id);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_BS_METHODS) {
+                        ALOGI("Peer BS methods: 0x%x\n", it.get_u16());
+                        bs_request_event.request_bootstrapping_method = it.get_u16();
+
+                    }
+                }
+
+                if (!bs_request_event.publish_subscribe_id ||
+                        !bs_request_event.requestor_instance_id ||
+                        !bs_request_event.bootstrapping_instance_id ||
+                        !bs_request_event.request_bootstrapping_method) {
+                    ALOGE("Check invalid params recvd pub_sub_id: 0x%x req_inst_id: %u"
+                            "bootstrapping_id: %u bs_methods 0x%x\n",
+                            bs_request_event.publish_subscribe_id,
+                            bs_request_event.requestor_instance_id,
+                            bs_request_event.bootstrapping_instance_id,
+                            bs_request_event.request_bootstrapping_method);
+                    goto fail;
+                }
+
+                GET_NAN_HANDLE(info)->mHandlers.EventBootstrappingRequest(&bs_request_event);
+                break;
+            case NAN_EVENT_BOOTSTRAPPING_CONFIRMATION:
+                NanBootstrappingConfirmInd bs_confirm_event;
+                memset(&bs_confirm_event, 0, sizeof(NanBootstrappingConfirmInd));
+                ALOGI("Received NAN_EVENT_BOOTSTRAPPING_CONFIRMATION\n");
+
+                for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                    attr_type = it.get_type();
+
+                    if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                        ALOGI("bootstrapping instance id: %u\n", it.get_u32());
+                        bs_confirm_event.bootstrapping_instance_id = it.get_u32();
+
+                        if ((bs_confirm_event.bootstrapping_instance_id <= NAN_MIN) ||
+                               (bs_confirm_event.bootstrapping_instance_id > NAN_MAX)) {
+                            ALOGE("INVALID bootstrapping instance id: %u\n",
+                                   bs_confirm_event.bootstrapping_instance_id);
+                            goto fail;
+                        }
+
+                    } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
+                        ALOGI("response code: %u\n", (NanBootstrappingResponseCode)it.get_u8());
+                        bs_confirm_event.rsp_code = (NanBootstrappingResponseCode)it.get_u8();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                        ALOGI("reason_code: %u\n", (NanStatusType)it.get_u8());
+                        bs_confirm_event.reason_code = (NanStatusType)it.get_u8();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_COME_BACK_DELAY) {
+                        ALOGI("comeback delay: %u\n", it.get_u32());
+                        bs_confirm_event.come_back_delay = it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_COOKIE_LEN) {
+                        ALOGI("cookie len: %u\n", it.get_u32());
+                        bs_confirm_event.cookie_length = it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_COOKIE) {
+                        memcpy(bs_confirm_event.cookie, it.get_data(),
+                                bs_confirm_event.cookie_length);
+                        prhex("cookie", bs_confirm_event.cookie,
+                                bs_confirm_event.cookie_length);
+                    }
+                }
+
+                if (!bs_confirm_event.bootstrapping_instance_id) {
+                    ALOGE("Check invalid bootstrapping_id: %u recvd\n",
+                            bs_confirm_event.bootstrapping_instance_id);
+                    goto fail;
+                }
+
+                GET_NAN_HANDLE(info)->mHandlers.EventBootstrappingConfirm(&bs_confirm_event);
+                break;
+        } // end-of-switch-case
+        return NL_SKIP;
+fail:
+    ALOGE("Dropping Pairing Event %d, invalid params received \n", cmd);
+    return NL_STOP;
+    }
+};
+
+///////////////////////////////////////////////////////////////////////////////
 class NanDiscEnginePrimitive : public WifiCommand
 {
     NanRequest mParams;
@@ -593,6 +1658,7 @@ class NanDiscEnginePrimitive : public WifiCommand
     u16 mInstId;
     u32 mPeerId;
     u16 mTxId;
+    wifi_interface_handle mIface;
 
     public:
     NanDiscEnginePrimitive(wifi_interface_handle iface, int id,
@@ -602,6 +1668,7 @@ class NanDiscEnginePrimitive : public WifiCommand
         mInstId = 0;
         mPeerId = 0;
         setTransactionId(id);
+        setIface(iface);
     }
 
     ~NanDiscEnginePrimitive() {
@@ -630,6 +1697,10 @@ class NanDiscEnginePrimitive : public WifiCommand
 
     void setParams(NanRequest params) {
         mParams = params;
+    }
+
+    void setIface(wifi_interface_handle iface) {
+        mIface = iface;
     }
 
     int createRequest(WifiRequest& request)
@@ -673,6 +1744,7 @@ class NanDiscEnginePrimitive : public WifiCommand
          */
         mInstId = mParams->publish_id;
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        hal_info *h_info = getHalInfo(mIface);
 
         result = request.put_u32(NAN_ATTRIBUTE_PUBLISH_ID, mInstId);
         if (result < 0) {
@@ -715,6 +1787,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_name_len) {
+            if (mParams->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+                ALOGE("%s: Invalid svc len %d\n", __func__, mParams->service_name_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
+
             u8 svc_hash[NAN_SVC_HASH_SIZE];
 
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
@@ -742,6 +1819,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_specific_info_len) {
+            if (mParams->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+                ALOGE("%s: Invalid svc info len = %d\n",
+                        __func__, mParams->service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->service_specific_info_len);
             if (result < 0) {
@@ -758,6 +1840,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->rx_match_filter_len) {
+            if (mParams->rx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+                ALOGE("%s: Invalid rx match filter len = %d\n",
+                        __func__, mParams->rx_match_filter_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_RX_MATCH_FILTER_LEN,
                     mParams->rx_match_filter_len);
             if (result < 0) {
@@ -766,7 +1853,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->rx_match_filter, mParams->rx_match_filter_len);
+            prhex("rx match: ", mParams->rx_match_filter, mParams->rx_match_filter_len);
             result = request.put(NAN_ATTRIBUTE_RX_MATCH_FILTER,
                     (void *)mParams->rx_match_filter, mParams->rx_match_filter_len);
             if (result < 0) {
@@ -776,6 +1863,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->tx_match_filter_len) {
+            if (mParams->tx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+                ALOGE("%s: Invalid tx match filter len = %d\n",
+                        __func__, mParams->tx_match_filter_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN,
                     mParams->tx_match_filter_len);
             if (result < 0) {
@@ -783,7 +1875,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->tx_match_filter, mParams->tx_match_filter_len);
+            prhex("tx match: ", mParams->tx_match_filter, mParams->tx_match_filter_len);
             result = request.put(NAN_ATTRIBUTE_TX_MATCH_FILTER,
                     (void *)mParams->tx_match_filter, mParams->tx_match_filter_len);
             if (result < 0) {
@@ -830,6 +1922,11 @@ class NanDiscEnginePrimitive : public WifiCommand
 
         if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
             if (mParams->key_info.body.pmk_info.pmk_len) {
+                if (mParams->key_info.body.pmk_info.pmk_len > NAN_PMK_INFO_LEN) {
+                    ALOGE("%s: Invalid pmk len len = %d\n",
+                            __func__, mParams->key_info.body.pmk_info.pmk_len);
+                    return WIFI_ERROR_INVALID_ARGS;
+                }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
                         mParams->key_info.body.pmk_info.pmk_len);
                 if (result < 0) {
@@ -847,8 +1944,10 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
-            if (mParams->key_info.body.passphrase_info.passphrase_len < NAN_SECURITY_MIN_PASSPHRASE_LEN ||
-                    mParams->key_info.body.passphrase_info.passphrase_len > NAN_SECURITY_MAX_PASSPHRASE_LEN) {
+            if ((mParams->key_info.body.passphrase_info.passphrase_len <
+                    NAN_SECURITY_MIN_PASSPHRASE_LEN) ||
+                    (mParams->key_info.body.passphrase_info.passphrase_len >
+                    NAN_SECURITY_MAX_PASSPHRASE_LEN)) {
                 ALOGE("passphrase must be between %d and %d characters long\n",
                         NAN_SECURITY_MIN_PASSPHRASE_LEN,
                         NAN_SECURITY_MAX_PASSPHRASE_LEN);
@@ -858,7 +1957,8 @@ class NanDiscEnginePrimitive : public WifiCommand
                 result = passphrase_to_pmk(mNmi, mParams->cipher_type,
                         mParams->service_name, &mParams->key_info, pmk_hex);
                 if (result < 0) {
-                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n", __func__, result);
+                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n",
+                            __func__, result);
                     return result;
                 }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN, NAN_PMK_INFO_LEN);
@@ -887,7 +1987,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->scid, mParams->scid_len);
+            prhex("SCID: ", mParams->scid, mParams->scid_len);
             result = request.put(NAN_ATTRIBUTE_SCID,
                     (void *)mParams->scid, mParams->scid_len);
             if (result < 0) {
@@ -900,28 +2000,32 @@ class NanDiscEnginePrimitive : public WifiCommand
                 mParams->sdea_params.config_nan_data_path);
 
         if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_CONFIG_DP, result = %d\n", __func__, result);
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_CONFIG_DP, result = %d\n",
+                    __func__, result);
             return result;
         }
 
         result = request.put_u8(NAN_ATTRIBUTE_SDE_CONTROL_SECURITY,
                 mParams->sdea_params.security_cfg);
         if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_SECURITY, result = %d\n", __func__, result);
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_SECURITY, result = %d\n",
+                    __func__, result);
             return result;
         }
 
         result = request.put_u8(NAN_ATTRIBUTE_SDE_CONTROL_DP_TYPE,
                 mParams->sdea_params.ndp_type);
         if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_DP_TYPE, result = %d\n", __func__, result);
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_DP_TYPE, result = %d\n",
+                    __func__, result);
             return result;
         }
 
         result = request.put_u8(NAN_ATTRIBUTE_SDE_CONTROL_RANGE_SUPPORT,
                 mParams->sdea_params.ranging_state);
         if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_RANGE_SUPPORT, result = %d\n", __func__, result);
+            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SDE_CONTROL_RANGE_SUPPORT, result = %d\n",
+                    __func__, result);
             return result;
         }
 
@@ -934,6 +2038,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->sdea_service_specific_info_len) {
+            if (mParams->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+                ALOGE("%s: Invalid sdea info len = %d\n",
+                        __func__, mParams->sdea_service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->sdea_service_specific_info_len);
             if (result < 0) {
@@ -941,9 +2050,11 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+            prhex("SDEA INFO: ", mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             result = request.put(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO,
-                    (void *)mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+                    (void *)mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill sdea svc info, result = %d\n", __func__, result);
                 return result;
@@ -958,13 +2069,62 @@ class NanDiscEnginePrimitive : public WifiCommand
             return result;
         }
 
-        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n", __func__, result);
-            return result;
+        ALOGI("createPublishRequest: Cached pairing %d suspend %d, mode %d\n",
+                GET_NAN_PAIRING_CAP(h_info), GET_NAN_SUSPEND_CAP(h_info), get_halutil_mode());
+
+        if (get_halutil_mode() || GET_NAN_SUSPEND_CAP(h_info)) {
+            result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE,
+                     mParams->enable_suspendability);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
         }
-	/* To be removed */
-        ALOGE("Publish enable_suspendability=%u\n", mParams->enable_suspendability);
+
+        if (get_halutil_mode() || GET_NAN_PAIRING_CAP(h_info)) {
+            if (NIK_ISNULL(mParams->nan_identity_key)) {
+                ALOGI("NIK is NULL");
+            } else {
+                result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                        NAN_IDENTITY_KEY_LEN);
+                if (result < 0) {
+                    return result;
+                }
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
+                    mParams->nan_pairing_config.enable_pairing_setup);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
+                    mParams->nan_pairing_config.enable_pairing_verification);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
+                    mParams->nan_pairing_config.enable_pairing_cache);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
+                    mParams->nan_pairing_config.supported_bootstrapping_methods);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+        }
 
         request.attr_end(data);
 
@@ -1016,6 +2176,7 @@ class NanDiscEnginePrimitive : public WifiCommand
          */
         mInstId = mParams->subscribe_id;
         nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
+        hal_info *h_info = getHalInfo(mIface);
 
         result = request.put_u16(NAN_ATTRIBUTE_SUBSCRIBE_ID, mInstId);
         if (result < 0) {
@@ -1087,7 +2248,12 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_name_len) {
+            if (mParams->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+                ALOGE("%s: Invalid svc len %d\n", __func__, mParams->service_name_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             u8 svc_hash[NAN_SVC_HASH_SIZE];
+
             result = get_svc_hash(mParams->service_name, mParams->service_name_len,
                     svc_hash, NAN_SVC_HASH_SIZE);
             if (result < 0) {
@@ -1100,8 +2266,7 @@ class NanDiscEnginePrimitive : public WifiCommand
 
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_NAME_LEN, mParams->service_name_len);
             if (result < 0) {
-                ALOGE("%s: Failed to fill svc hash len, result = %d\n",
-                        __func__, result);
+                ALOGE("%s: Failed to fill svc hash len, result = %d\n", __func__, result);
                 return result;
             }
 
@@ -1114,6 +2279,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->service_specific_info_len) {
+            if (mParams->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+                ALOGE("%s: Invalid svc info len = %d\n",
+                        __func__, mParams->service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->service_specific_info_len);
             if (result < 0) {
@@ -1130,6 +2300,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->rx_match_filter_len) {
+            if (mParams->rx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+                ALOGE("%s: Invalid rx match filter len = %d\n",
+                        __func__, mParams->rx_match_filter_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_RX_MATCH_FILTER_LEN,
                     mParams->rx_match_filter_len);
             if (result < 0) {
@@ -1137,7 +2312,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->rx_match_filter, mParams->rx_match_filter_len);
+            prhex("rx match: ", mParams->rx_match_filter, mParams->rx_match_filter_len);
             result = request.put(NAN_ATTRIBUTE_RX_MATCH_FILTER,
                     (void *)mParams->rx_match_filter, mParams->rx_match_filter_len);
             if (result < 0) {
@@ -1147,6 +2322,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->tx_match_filter_len) {
+            if (mParams->tx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+                ALOGE("%s: Invalid tx match filter len = %d\n",
+                        __func__, mParams->tx_match_filter_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN,
                     mParams->tx_match_filter_len);
             if (result < 0) {
@@ -1154,7 +2334,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->tx_match_filter, mParams->tx_match_filter_len);
+            prhex("tx match: ", mParams->tx_match_filter, mParams->tx_match_filter_len);
             result = request.put(NAN_ATTRIBUTE_TX_MATCH_FILTER,
                     (void *)mParams->tx_match_filter, mParams->tx_match_filter_len);
             if (result < 0) {
@@ -1176,8 +2356,6 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, (u8 *)mParams->intf_addr,
-                    (mParams->num_intf_addr_present * NAN_MAC_ADDR_LEN));
             result = request.put(NAN_ATTRIBUTE_MAC_ADDR_LIST, (void *)mParams->intf_addr,
                     (mParams->num_intf_addr_present * NAN_MAC_ADDR_LEN));
             if (result < 0) {
@@ -1210,12 +2388,17 @@ class NanDiscEnginePrimitive : public WifiCommand
                 mParams->key_info.key_type);
         if (result < 0) {
             ALOGE("%s: Failed to fill NAN_ATTRIBUTE_KEY_TYPE, result = %d\n",
-                    __func__, result);
+                        __func__, result);
             return result;
         }
 
         if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
             if (mParams->key_info.body.pmk_info.pmk_len) {
+                if (mParams->key_info.body.pmk_info.pmk_len > NAN_PMK_INFO_LEN) {
+                    ALOGE("%s: Invalid pmk len len = %d\n",
+                            __func__, mParams->key_info.body.pmk_info.pmk_len);
+                    return WIFI_ERROR_INVALID_ARGS;
+                }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
                         mParams->key_info.body.pmk_info.pmk_len);
                 if (result < 0) {
@@ -1298,7 +2481,8 @@ class NanDiscEnginePrimitive : public WifiCommand
             result = request.put_u32(NAN_ATTRIBUTE_RANGING_INDICATION,
                     mParams->ranging_cfg.config_ranging_indications);
             if (result < 0) {
-                ALOGE("%s: Failed to fill config_ranging_indications, result = %d\n", __func__, result);
+                ALOGE("%s: Failed to fill config_ranging_indications, result = %d\n",
+                        __func__, result);
                 return result;
             }
 
@@ -1320,6 +2504,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->sdea_service_specific_info_len) {
+            if (mParams->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+                ALOGE("%s: Invalid sdea info len = %d\n",
+                        __func__, mParams->sdea_service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->sdea_service_specific_info_len);
             if (result < 0) {
@@ -1327,22 +2516,72 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+            prhex("SDEA INFO: ", mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             result = request.put(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO,
-                    (void *)mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+                    (void *)mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill sdea svc info, result = %d\n", __func__, result);
                 return result;
             }
         }
 
-        result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, mParams->enable_suspendability);
-        if (result < 0) {
-            ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n", __func__, result);
-            return result;
+        ALOGI("createSubscribeRequest: Cached pairing %d suspend %d, mode %d\n",
+                GET_NAN_PAIRING_CAP(h_info), GET_NAN_SUSPEND_CAP(h_info), get_halutil_mode());
+        if (get_halutil_mode() || GET_NAN_SUSPEND_CAP(h_info)) {
+            result = request.put_u8(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE,
+                    mParams->enable_suspendability);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
         }
-	/* To be removed */
-        ALOGE("Subscribe enable_suspendability=%u\n", mParams->enable_suspendability);
+
+        if (get_halutil_mode() || GET_NAN_PAIRING_CAP(h_info)) {
+            if (NIK_ISNULL(mParams->nan_identity_key)) {
+                ALOGI("NIK is NULL");
+            } else {
+                result = request.put(NAN_ATTRIBUTE_LOCAL_NIK, mParams->nan_identity_key,
+                        NAN_IDENTITY_KEY_LEN);
+                if (result < 0) {
+                    return result;
+                }
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP,
+                    mParams->nan_pairing_config.enable_pairing_setup);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_SETUP, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION,
+                    mParams->nan_pairing_config.enable_pairing_verification);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u32(NAN_ATTRIBUTE_PAIRING_CACHE,
+                    mParams->nan_pairing_config.enable_pairing_cache);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_PAIRING_CACHE, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+
+            result = request.put_u16(NAN_ATTRIBUTE_BS_METHODS,
+                    mParams->nan_pairing_config.supported_bootstrapping_methods);
+            if (result < 0) {
+                ALOGE("%s: Failed to fill NAN_ATTRIBUTE_BS_METHODS, result = %d\n",
+                        __func__, result);
+                return result;
+            }
+        }
 
         request.attr_end(data);
         NAN_DBG_EXIT();
@@ -1414,7 +2653,12 @@ class NanDiscEnginePrimitive : public WifiCommand
             return result;
         }
 
-        if (mParams->service_specific_info_len > 0) {
+        if (mParams->service_specific_info_len) {
+            if (mParams->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+                ALOGE("%s: Invalid svc info len = %d\n",
+                        __func__, mParams->service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->service_specific_info_len);
             if (result < 0) {
@@ -1422,7 +2666,8 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->service_specific_info, mParams->service_specific_info_len);
+            prhex("service info: ", mParams->service_specific_info,
+                    mParams->service_specific_info_len);
             result = request.put(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO,
                     (void *)mParams->service_specific_info, mParams->service_specific_info_len);
             if (result < 0) {
@@ -1451,6 +2696,11 @@ class NanDiscEnginePrimitive : public WifiCommand
         }
 
         if (mParams->sdea_service_specific_info_len) {
+            if (mParams->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+                ALOGE("%s: Invalid sdea info len = %d\n",
+                        __func__, mParams->sdea_service_specific_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->sdea_service_specific_info_len);
             if (result < 0) {
@@ -1458,9 +2708,11 @@ class NanDiscEnginePrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+            prhex("SDEA INFO: ", mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             result = request.put(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO,
-                    (void *)mParams->sdea_service_specific_info, mParams->sdea_service_specific_info_len);
+                    (void *)mParams->sdea_service_specific_info,
+                    mParams->sdea_service_specific_info_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill sdea svc info, result = %d\n", __func__, result);
                 return result;
@@ -1511,7 +2763,7 @@ class NanDiscEnginePrimitive : public WifiCommand
 
     virtual bool valid_disc_response_type(int response_type) {
         bool valid = false;
-        switch(response_type) {
+        switch (response_type) {
             case NAN_RESPONSE_PUBLISH:
             case NAN_RESPONSE_SUBSCRIBE:
             case NAN_GET_CAPABILITIES:
@@ -1531,13 +2783,13 @@ class NanDiscEnginePrimitive : public WifiCommand
     {
         nan_hal_resp_t *rsp_vndr_data = NULL;
         NanResponseMsg rsp_data;
-        u32 len;
+        hal_info *h_info = getHalInfo(mIface);
+
         if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
             ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
             return NL_SKIP;
         }
         rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
-        len = reply.get_vendor_data_len();
         ALOGI("NanDiscEnginePrmitive::handle response\n");
         memset(&rsp_data, 0, sizeof(NanResponseMsg));
         rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
@@ -1589,7 +2841,22 @@ class NanDiscEnginePrimitive : public WifiCommand
             desc->is_instant_mode_supported = src->is_instant_mode_supported;
             desc->ndpe_attr_supported = src->ndpe_attr_supported;
             desc->is_suspension_supported = src->is_suspension_supported;
-            ALOGE(" suspend capability %d \n", rsp_vndr_data->capabilities.is_suspension_supported); //Remove
+            /* Temporarily disable NAN pairing feature capability */
+            //desc->is_pairing_supported = src->is_pairing_supported;
+            ALOGI("Capabilities pairing %u, local pairing %u csid 0x%x", desc->is_pairing_supported,
+                    src->is_pairing_supported, desc->cipher_suites_supported);
+
+            if (!get_halutil_mode()) {
+                SET_NAN_SUSPEND_CAP(h_info, desc->is_suspension_supported);
+                SET_NAN_PAIRING_CAP(h_info, desc->is_pairing_supported);
+                ALOGI("Capabilities Cached pairing %d suspend %d\n", GET_NAN_PAIRING_CAP(h_info),
+                        GET_NAN_SUSPEND_CAP(h_info));
+
+                if (!id()) {
+                    ALOGE("Skip to send the nan cap cmd response, id() %d\n", id());
+                    return NL_SKIP;
+                }
+            }
         }
 
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
@@ -1626,7 +2893,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         memcpy(pub_term_event.nan_reason, it.get_data(), len);
                         pub_term_event.nan_reason[len] = '\0';
                         ALOGI("pub termination reason: %s, len = %d\n",
-                            pub_term_event.nan_reason, len);
+                                pub_term_event.nan_reason, len);
                     } else {
                         ALOGE("Unknown attr: %u\n", attr_type);
                     }
@@ -1660,25 +2927,25 @@ class NanDiscEnginePrimitive : public WifiCommand
                         subscribe_event.service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(subscribe_event.service_specific_info_len,
-                                      sizeof(subscribe_event.service_specific_info));
+                                  sizeof(subscribe_event.service_specific_info));
                         memcpy(subscribe_event.service_specific_info, it.get_data(), len);
                     } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN) {
                         subscribe_event.sdf_match_filter_len = it.get_u16();
                         ALOGI("sdf match filter length: %d\n",
-                            subscribe_event.sdf_match_filter_len);
+                                subscribe_event.sdf_match_filter_len);
                     } else if (attr_type == NAN_ATTRIBUTE_TX_MATCH_FILTER) {
                         u16 len = min(subscribe_event.sdf_match_filter_len,
-                                      sizeof(subscribe_event.sdf_match_filter));
+                                sizeof(subscribe_event.sdf_match_filter));
                         memcpy(subscribe_event.sdf_match_filter, it.get_data(), len);
                     } else if (attr_type == NAN_ATTRIBUTE_CIPHER_SUITE_TYPE) {
                         ALOGI("Peer Cipher suite type: %u", it.get_u8());
                         subscribe_event.peer_cipher_type = it.get_u8();
                     } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
                         ALOGI("scid length %d", it.get_u32());
-                        subscribe_event.scid_len= it.get_u32();
+                                subscribe_event.scid_len = it.get_u32();
                     } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                         u16 len = min(subscribe_event.scid_len,
-                                      sizeof(subscribe_event.scid));
+                                sizeof(subscribe_event.scid));
                         memcpy(subscribe_event.scid, it.get_data(), len);
                     } else if (attr_type == NAN_ATTRIBUTE_RANGING_INDICATION) {
                         subscribe_event.range_info.ranging_event_type = it.get_u32();
@@ -1694,7 +2961,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         subscribe_event.sdea_service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(subscribe_event.sdea_service_specific_info_len,
-                                      sizeof(subscribe_event.sdea_service_specific_info));
+                                sizeof(subscribe_event.sdea_service_specific_info));
                         memcpy(subscribe_event.sdea_service_specific_info, it.get_data(), len);
                     } else if (attr_type == NAN_ATTRIBUTE_MATCH_OCCURRED_FLAG) {
                         ALOGI("match occurred flag: %u", it.get_u8());
@@ -1711,10 +2978,32 @@ class NanDiscEnginePrimitive : public WifiCommand
                     } else if (attr_type == NAN_ATTRIBUTE_SDE_CONTROL_SECURITY) {
                         ALOGI("Security configuration: %u", it.get_u8());
                         subscribe_event.peer_sdea_params.security_cfg =
-                            (NanDataPathSecurityCfgStatus)it.get_u8();
+                                (NanDataPathSecurityCfgStatus)it.get_u8();
                     } else if (attr_type == NAN_ATTRIBUTE_SDE_CONTROL_RANGE_SUPPORT) {
                         ALOGI("Ranging report state: %u", it.get_u8());
                         subscribe_event.peer_sdea_params.range_report = (NanRangeReport)it.get_u8();
+                    } else if (attr_type == NAN_ATTRIBUTE_ENAB_PAIRING_SETUP) {
+                        ALOGI("Enabe pairing setup: %u", it.get_u32());
+                        subscribe_event.peer_pairing_config.enable_pairing_setup = it.get_u32();
+                    } else if (attr_type == NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION) {
+                        ALOGI("Enabe pairing Verification: %u", it.get_u32());
+                        subscribe_event.peer_pairing_config.enable_pairing_verification =
+                                it.get_u32();
+                    } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                        ALOGI("Enabe pairing cache: %u", it.get_u32());
+                        subscribe_event.peer_pairing_config.enable_pairing_cache = it.get_u32();
+                    } else if (attr_type == NAN_ATTRIBUTE_BS_METHODS) {
+                        ALOGI("Supported bootstrapping methods : %u", it.get_u16());
+                        subscribe_event.peer_pairing_config.supported_bootstrapping_methods =
+                                it.get_u32();
+
+                    } else if (attr_type == NAN_ATTRIBUTE_NIRA_TAG) {
+                        memcpy(subscribe_event.nira.tag, it.get_data(), NAN_IDENTITY_TAG_LEN);
+                        prhex("NIRA tag", subscribe_event.nira.tag, NAN_IDENTITY_TAG_LEN);
+
+                    } else if (attr_type == NAN_ATTRIBUTE_NIRA_NONCE) {
+                        memcpy(subscribe_event.nira.nonce, it.get_data(), NAN_IDENTITY_NONCE_LEN);
+                        prhex("NIRA nonce", subscribe_event.nira.nonce, NAN_IDENTITY_NONCE_LEN);
                     }
                 }
 
@@ -1743,7 +3032,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         memcpy(sub_term_event.nan_reason, it.get_data(), len);
                         sub_term_event.nan_reason[len] = '\0';
                         ALOGI("sub termination nan reason: %s, len = %d\n",
-                            sub_term_event.nan_reason, len);
+                                sub_term_event.nan_reason, len);
                     } else {
                         ALOGI("Unknown attr: %d\n", attr_type);
                     }
@@ -1771,11 +3060,11 @@ class NanDiscEnginePrimitive : public WifiCommand
                         followup_event.service_specific_info_len = it.get_u16();
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(followup_event.service_specific_info_len,
-                                      sizeof(followup_event.service_specific_info));
+                                sizeof(followup_event.service_specific_info));
                         memcpy(followup_event.service_specific_info, it.get_data(), len);
                     } else if (attr_type == NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(followup_event.sdea_service_specific_info_len,
-                                      sizeof(followup_event.sdea_service_specific_info));
+                                sizeof(followup_event.sdea_service_specific_info));
                         memcpy(followup_event.sdea_service_specific_info, it.get_data(), len);
                     }
                 }
@@ -1798,7 +3087,7 @@ class NanDiscEnginePrimitive : public WifiCommand
                         memcpy(followup_ind.nan_reason, it.get_data(), len);
                         followup_ind.nan_reason[len] = '\0';
                         ALOGI("nan transmit followup ind: reason: %s, len = %d\n",
-                            followup_ind.nan_reason, len);
+                                followup_ind.nan_reason, len);
                     }
                 }
                 GET_NAN_HANDLE(info)->mHandlers.EventTransmitFollowup(&followup_ind);
@@ -1899,7 +3188,7 @@ class NanDataPathPrimitive : public WifiCommand
         /* Do not create interface if already exist. */
         if (if_nametoindex(iface_name)) {
             ALOGD("%s: if_nametoindex(%s) = %d already exists, skip create \n",
-                __FUNCTION__, iface_name, if_nametoindex(iface_name));
+                    __FUNCTION__, iface_name, if_nametoindex(iface_name));
             return WIFI_SUCCESS;
         }
 
@@ -1943,7 +3232,7 @@ class NanDataPathPrimitive : public WifiCommand
         result = request.put_u32(NL80211_ATTR_IFINDEX, if_nametoindex(iface_name));
         if (result < 0) {
             ALOGE("failed to put NL80211_ATTR_IFINDEX = %d; result = %d",
-                if_nametoindex(iface_name), result);
+                    if_nametoindex(iface_name), result);
             return result;
         }
 
@@ -2042,6 +3331,11 @@ class NanDataPathPrimitive : public WifiCommand
         }
 
         if (mParams->app_info.ndp_app_info_len) {
+            if (mParams->app_info.ndp_app_info_len > NAN_DP_MAX_APP_INFO_LEN) {
+                ALOGE("%s: Invalid ndp app_info len = %d\n",
+                        __func__, mParams->app_info.ndp_app_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->app_info.ndp_app_info_len);
             if (result < 0) {
@@ -2076,15 +3370,20 @@ class NanDataPathPrimitive : public WifiCommand
 
 
         if (mParams->service_name_len) {
+            if (mParams->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+                ALOGE("%s: Invalid svc name len = %d\n",
+                        __func__, mParams->service_name_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_NAME_LEN, mParams->service_name_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill svc name len, result = %d\n", __func__, result);
                 return result;
             }
 
-            prhex(NULL, mParams->service_name, mParams->service_name_len);
+            prhex("SVC NAME: ", mParams->service_name, mParams->service_name_len);
             result = request.put(NAN_ATTRIBUTE_SERVICE_NAME, (void *)mParams->service_name,
-                    mParams->service_name_len);
+                        mParams->service_name_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill svc name, result = %d\n", __func__, result);
                 return result;
@@ -2093,6 +3392,12 @@ class NanDataPathPrimitive : public WifiCommand
 
         if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
             if (mParams->key_info.body.pmk_info.pmk_len) {
+                if (mParams->key_info.body.pmk_info.pmk_len > NAN_PMK_INFO_LEN) {
+                    ALOGE("%s: Invalid pmk len len = %d\n",
+                            __func__, mParams->key_info.body.pmk_info.pmk_len);
+                    return WIFI_ERROR_INVALID_ARGS;
+                }
+
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
                         mParams->key_info.body.pmk_info.pmk_len);
                 if (result < 0) {
@@ -2121,7 +3426,8 @@ class NanDataPathPrimitive : public WifiCommand
                 result = passphrase_to_pmk(mParams->peer_disc_mac_addr, mParams->cipher_type,
                         mParams->service_name, &mParams->key_info, pmk_hex);
                 if (result < 0) {
-                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n", __func__, result);
+                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n",
+                            __func__, result);
                     return result;
                 }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN, NAN_PMK_INFO_LEN);
@@ -2134,7 +3440,6 @@ class NanDataPathPrimitive : public WifiCommand
                     ALOGE("%s: Failed to fill passphrase, result = %d\n", __func__, result);
                     return result;
                 }
-                prhex("PMK", pmk_hex, NAN_PMK_INFO_LEN);
             }
         }
 
@@ -2162,7 +3467,7 @@ class NanDataPathPrimitive : public WifiCommand
             result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
             if (result < 0) {
                 ALOGE("%s: Failed to fill sub id = %d, result = %d\n",
-                    __func__, mParams->publish_subscribe_id, result);
+                        __func__, mParams->publish_subscribe_id, result);
                 return result;
             }
         }
@@ -2211,6 +3516,11 @@ class NanDataPathPrimitive : public WifiCommand
         }
 
         if (mParams->app_info.ndp_app_info_len) {
+            if (mParams->app_info.ndp_app_info_len > NAN_DP_MAX_APP_INFO_LEN) {
+                ALOGE("%s: Invalid ndp app_info len = %d\n",
+                        __func__, mParams->app_info.ndp_app_info_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN,
                     mParams->app_info.ndp_app_info_len);
             if (result < 0) {
@@ -2251,13 +3561,18 @@ class NanDataPathPrimitive : public WifiCommand
         }
 
         if (mParams->service_name_len) {
+            if (mParams->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+                ALOGE("%s: Invalid svc name len = %d\n",
+                        __func__, mParams->service_name_len);
+                return WIFI_ERROR_INVALID_ARGS;
+            }
             result = request.put_u16(NAN_ATTRIBUTE_SERVICE_NAME_LEN, mParams->service_name_len);
             if (result < 0) {
                 ALOGE("%s: Failed to fill svc name len, result = %d\n", __func__, result);
                 return result;
             }
 
-            prhex(NULL, mParams->service_name, mParams->service_name_len);
+            prhex("SVC NAME: ", mParams->service_name, mParams->service_name_len);
             result = request.put(NAN_ATTRIBUTE_SERVICE_NAME, (void *)mParams->service_name,
                     mParams->service_name_len);
             if (result < 0) {
@@ -2268,6 +3583,11 @@ class NanDataPathPrimitive : public WifiCommand
 
         if (mParams->key_info.key_type == NAN_SECURITY_KEY_INPUT_PMK) {
             if (mParams->key_info.body.pmk_info.pmk_len) {
+                if (mParams->key_info.body.pmk_info.pmk_len > NAN_PMK_INFO_LEN) {
+                    ALOGE("%s: Invalid pmk len len = %d\n",
+                            __func__, mParams->key_info.body.pmk_info.pmk_len);
+                    return WIFI_ERROR_INVALID_ARGS;
+                }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN,
                         mParams->key_info.body.pmk_info.pmk_len);
                 if (result < 0) {
@@ -2296,7 +3616,8 @@ class NanDataPathPrimitive : public WifiCommand
                 result = passphrase_to_pmk(mPubNmi, mParams->cipher_type,
                         mParams->service_name, &mParams->key_info, pmk_hex);
                 if (result < 0) {
-                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n", __func__, result);
+                    ALOGE("%s: Failed to convert passphrase to key data, result = %d\n",
+                            __func__, result);
                     return result;
                 }
                 result = request.put_u32(NAN_ATTRIBUTE_KEY_LEN, NAN_PMK_INFO_LEN);
@@ -2324,7 +3645,7 @@ class NanDataPathPrimitive : public WifiCommand
                 return result;
             }
 
-            prhex(NULL, mParams->scid, mParams->scid_len);
+            prhex("SCID: ", mParams->scid, mParams->scid_len);
             result = request.put(NAN_ATTRIBUTE_SCID,
                     (void *)mParams->scid, mParams->scid_len);
             if (result < 0) {
@@ -2337,7 +3658,7 @@ class NanDataPathPrimitive : public WifiCommand
             result = request.put_u16(NAN_ATTRIBUTE_INST_ID, mParams->publish_subscribe_id);
             if (result < 0) {
                 ALOGE("%s: Failed to fill sub id = %d, result = %d\n",
-                    __func__, mParams->publish_subscribe_id, result);
+                        __func__, mParams->publish_subscribe_id, result);
                 return result;
             }
         }
@@ -2404,13 +3725,12 @@ class NanDataPathPrimitive : public WifiCommand
             /* Return success even for no dev case also, nothing to do */
             rsp_data.status = NAN_STATUS_SUCCESS;
             memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
-                strlen(NanStatusToString(rsp_data.status)));
+                    strlen(NanStatusToString(rsp_data.status)));
             rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
             rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
-            ALOGI("Mapped hal status = %d\n", rsp_data.status);
-            ALOGI("Received nan_error string %s\n", (u8*)rsp_data.nan_error);
+            ALOGI("hal status = %d, resp_string %s\n",
+                    rsp_data.status, (u8*)rsp_data.nan_error);
             GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
-            ALOGE("Notified by cmd ret!!");
         }
         request.destroy();
         return WIFI_SUCCESS;
@@ -2448,14 +3768,9 @@ class NanDataPathPrimitive : public WifiCommand
               * mimicking the NanResponseMsg for iface create and delete nan cmds
               */
              rsp_data.response_type = get_response_type_frm_req_type((NanRequestType)mType);
-             /* Return success even for no dev case also, nothing to do */
-             if (result == WIFI_SUCCESS || result == WIFI_ERROR_NOT_AVAILABLE) {
-                 rsp_data.status = NAN_STATUS_SUCCESS;
-             } else {
-                 rsp_data.status = NAN_STATUS_INTERNAL_FAILURE;
-             }
+             rsp_data.status = NAN_STATUS_SUCCESS;
         } else if (reply.get_cmd() != NL80211_CMD_VENDOR ||
-                    reply.get_vendor_data() == NULL ||
+            reply.get_vendor_data() == NULL ||
                     reply.get_vendor_data_len() != sizeof(nan_hal_resp_t)) {
             ALOGD("Ignoring reply with cmd = %d mType = %d len = %d\n",
                     reply.get_cmd(), mType, reply.get_vendor_data_len());
@@ -2474,9 +3789,9 @@ class NanDataPathPrimitive : public WifiCommand
 
             if (rsp_data.response_type == NAN_DP_INITIATOR_RESPONSE) {
                 ALOGI("received ndp instance_id %d and ret = %d\n",
-                    rsp_vndr_data->ndp_instance_id, result);
+                        rsp_vndr_data->ndp_instance_id, result);
                 rsp_data.body.data_request_response.ndp_instance_id =
-                    rsp_vndr_data->ndp_instance_id;
+                        rsp_vndr_data->ndp_instance_id;
                 mNdpId = rsp_vndr_data->ndp_instance_id;
             } else if ((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd == NAN_SUBCMD_DATA_PATH_SEC_INFO) {
                 memcpy(mPubNmi, rsp_vndr_data->pub_nmi, NAN_MAC_ADDR_LEN);
@@ -2486,14 +3801,14 @@ class NanDataPathPrimitive : public WifiCommand
         }
 
         memcpy(rsp_data.nan_error, NanStatusToString(rsp_data.status),
-            strlen(NanStatusToString(rsp_data.status)));
+                strlen(NanStatusToString(rsp_data.status)));
         rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
         rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
 
         ALOGI("Mapped hal status = %d\n", rsp_data.status);
         ALOGI("Received nan_error string %s\n", (u8*)rsp_data.nan_error);
         ALOGI("NanDataPathPrmitive:Received response for cmd [%s], ret %d\n",
-            NanRspToString(rsp_data.response_type), rsp_data.status);
+                NanRspToString(rsp_data.response_type), rsp_data.status);
         GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
         ALOGE("Notified by cmd reply!!");
         return NL_SKIP;
@@ -2536,7 +3851,7 @@ class NanDataPathPrimitive : public WifiCommand
                         ALOGI("security: %u\n",
                                 (NanDataPathSecurityCfgStatus)it.get_u8());
                         ndp_request_event.ndp_cfg.security_cfg =
-                            (NanDataPathSecurityCfgStatus)it.get_u8();
+                                (NanDataPathSecurityCfgStatus)it.get_u8();
 
                     } else if (attr_type == NAN_ATTRIBUTE_QOS) {
                         ALOGI("QoS: %u\n", (NanDataPathQosCfg)it.get_u8());
@@ -2548,16 +3863,15 @@ class NanDataPathPrimitive : public WifiCommand
 
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(ndp_ind_app_info_len,
-                                      sizeof(ndp_request_event.app_info.ndp_app_info));
+                                sizeof(ndp_request_event.app_info.ndp_app_info));
                         memcpy(ndp_request_event.app_info.ndp_app_info, it.get_data(), len);
-
                     } else if (attr_type == NAN_ATTRIBUTE_SCID_LEN) {
                         ALOGI("scid len: %u\n", it.get_u32());
                         ndp_request_event.scid_len = it.get_u32();
 
                     } else if (attr_type == NAN_ATTRIBUTE_SCID) {
                         u16 len = min(ndp_request_event.scid_len,
-                                      sizeof(ndp_request_event.scid));
+                                sizeof(ndp_request_event.scid));
                         memcpy(ndp_request_event.scid, it.get_data(), len);
                     }
                 }
@@ -2590,38 +3904,36 @@ class NanDataPathPrimitive : public WifiCommand
                         ALOGI("service info len: %d", it.get_u16());
                         ndp_create_confirmation_event.app_info.ndp_app_info_len = it.get_u16();
                         ndp_conf_app_info_len =
-                            ndp_create_confirmation_event.app_info.ndp_app_info_len;
+                                ndp_create_confirmation_event.app_info.ndp_app_info_len;
                     } else if (attr_type == NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO) {
                         u16 len = min(ndp_conf_app_info_len,
-                                 sizeof(ndp_create_confirmation_event.app_info.ndp_app_info));
+                                sizeof(ndp_create_confirmation_event.app_info.ndp_app_info));
                         memcpy(ndp_create_confirmation_event.app_info.ndp_app_info,
                                 it.get_data(), len);
 
                     } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
                         ALOGI("response code: %u", (NanDataPathResponseCode)it.get_u8());
                         ndp_create_confirmation_event.rsp_code =
-                            (NanDataPathResponseCode)it.get_u8();
+                                (NanDataPathResponseCode)it.get_u8();
                     } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
                         ALOGI("reason code %u", (NanDataPathResponseCode)it.get_u8());
                         ndp_create_confirmation_event.rsp_code =
-                            (NanDataPathResponseCode)it.get_u8();
+                                (NanDataPathResponseCode)it.get_u8();
                     } else if (attr_type == NAN_ATTRIBUTE_NUM_CHANNELS) {
                         ALOGI("num channels %u", it.get_u32());
                         if (it.get_u32() <= NAN_MAX_CHANNEL_INFO_SUPPORTED) {
                             ndp_create_confirmation_event.num_channels = it.get_u32();
                         } else {
                             ndp_create_confirmation_event.num_channels =
-                                NAN_MAX_CHANNEL_INFO_SUPPORTED;
+                                    NAN_MAX_CHANNEL_INFO_SUPPORTED;
                             ALOGE("num channels reset to max allowed %u",
-                                ndp_create_confirmation_event.num_channels);
+                                    ndp_create_confirmation_event.num_channels);
                         }
                     } else if (attr_type == NAN_ATTRIBUTE_CHANNEL_INFO) {
                         ALOGI("Channel info \n");
-                        u16 len = min(
-                            ndp_create_confirmation_event.num_channels * sizeof(NanChannelInfo),
-                            it.get_len());
-                        memcpy((u8 *)ndp_create_confirmation_event.channel_info,
-                            it.get_data(), len);
+                        u16 len = min(ndp_create_confirmation_event.num_channels * sizeof(NanChannelInfo),
+                                it.get_len());
+                        memcpy((u8 *)ndp_create_confirmation_event.channel_info, it.get_data(), len);
                         while (chan_idx < ndp_create_confirmation_event.num_channels) {
                             ALOGI("channel: %u, Bandwidth: %u, nss: %u\n",
                                 ndp_create_confirmation_event.channel_info[chan_idx].channel,
@@ -2640,14 +3952,14 @@ class NanDataPathPrimitive : public WifiCommand
 
                 ndp_end_event =
                     (NanDataPathEndInd *)malloc(NAN_MAX_NDP_COUNT_SIZE +
-                    sizeof(ndp_end_event->num_ndp_instances));
+                            sizeof(ndp_end_event->num_ndp_instances));
                 if (!ndp_end_event) {
                     ALOGE("Failed to alloc for end request event\n");
                     break;
                 }
 
                 memset(ndp_end_event, 0, (NAN_MAX_NDP_COUNT_SIZE +
-                    sizeof(ndp_end_event->num_ndp_instances)));
+                        sizeof(ndp_end_event->num_ndp_instances)));
                 ALOGI("Received NAN_EVENT_DATA_END\n");
 
                 for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
@@ -2705,6 +4017,7 @@ class NanMacControl : public WifiCommand
         mVersion = 0;
         setIface(iface);
         setId(id);
+        mChreNan = 0;
     }
     ~NanMacControl() {
         ALOGE("NanMacControl destroyed\n");
@@ -3006,7 +4319,8 @@ class NanMacControl : public WifiCommand
         }
 
         if (mParams->config_dw.config_2dot4g_dw_band) {
-            result = request.put_u32(NAN_ATTRIBUTE_2G_AWAKE_DW, mParams->config_dw.dw_2dot4g_interval_val);
+            result = request.put_u32(NAN_ATTRIBUTE_2G_AWAKE_DW,
+                    mParams->config_dw.dw_2dot4g_interval_val);
             if (result < 0) {
                 ALOGE("%s: Failing in 2dot4g awake dw, result = %d\n", __func__, result);
                 return result;
@@ -3014,7 +4328,8 @@ class NanMacControl : public WifiCommand
         }
 
         if (mParams->config_dw.config_5g_dw_band) {
-            result = request.put_u32(NAN_ATTRIBUTE_5G_AWAKE_DW, mParams->config_dw.dw_5g_interval_val);
+            result = request.put_u32(NAN_ATTRIBUTE_5G_AWAKE_DW,
+                    mParams->config_dw.dw_5g_interval_val);
             if (result < 0) {
                 ALOGE("%s: Failing in 5g awake dw, result = %d\n", __func__, result);
                 return result;
@@ -3074,7 +4389,8 @@ class NanMacControl : public WifiCommand
             result = request.put_u32(NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL,
                     mParams->disc_mac_addr_rand_interval_sec);
             if (result < 0) {
-                ALOGE("%s: Failing to fill rand mac address interval, result = %d\n", __func__, result);
+                ALOGE("%s: Failing to fill rand mac address interval, result = %d\n",
+                        __func__, result);
                 return result;
             }
         }
@@ -3296,14 +4612,15 @@ class NanMacControl : public WifiCommand
         }
 
         if (mParams->config_cluster_attribute_val) {
-            result = request.put_u8(NAN_ATTRIBUTE_CONF_CLUSTER_VAL, mParams->config_cluster_attribute_val);
+            result = request.put_u8(NAN_ATTRIBUTE_CONF_CLUSTER_VAL,
+                    mParams->config_cluster_attribute_val);
             if (result < 0) {
                 ALOGE("%s: Failing in config_cluster_attribute_val, result = %d\n", __func__, result);
                 return result;
             }
         }
 
-        if (mParams->config_fam) {
+        if (mParams->config_fam && (mParams->fam_val.numchans < NAN_MAX_FAM_CHANNELS)) {
             while (mParams->fam_val.numchans) {
                 result = request.put_u8(NAN_ATTRIBUTE_ENTRY_CONTROL,
                         mParams->fam_val.famchan[mParams->fam_val.numchans].entry_control);
@@ -3530,8 +4847,9 @@ class NanMacControl : public WifiCommand
             rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
             rsp_data.status = nan_map_response_status(rsp_vndr_data->status);
 
-            ALOGI("NanMacControl:Received response for cmd [%s], TxID %d ret %d\n",
-                    NanRspToString(rsp_data.response_type), id(), rsp_data.status);
+            ALOGI("NanMacControl:Received response [%s] for cmd [%d], TxID %d ret %d\n",
+                    NanRspToString(rsp_data.response_type), rsp_vndr_data->subcmd, id(),
+                    rsp_data.status);
 
             GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
         }
@@ -3541,13 +4859,15 @@ class NanMacControl : public WifiCommand
             rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
             rsp_data.status = nan_map_response_status(rsp_vndr_data->status);
 
-            ALOGI("NanMacControl:Received response for cmd [%s], TxID %d ret %d\n",
-                  NanRspToString(rsp_data.response_type), mId, rsp_data.status);
+            ALOGI("NanMacControl:Received response [%s] for cmd [%d], TxID %d ret %d\n",
+                    NanRspToString(rsp_data.response_type), rsp_vndr_data->subcmd, id(),
+                    rsp_data.status);
 
-            if( rsp_data.status != NAN_STATUS_SUCCESS) {
+            if (rsp_data.status != NAN_STATUS_SUCCESS) {
                 GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(mId, &rsp_data);
             }
         }
+
         if ((rsp_vndr_data->subcmd == NAN_SUBCMD_SUSPEND) ||
                 (rsp_vndr_data->subcmd == NAN_SUBCMD_RESUME)) {
             NanResponseMsg rsp_data;
@@ -3555,10 +4875,13 @@ class NanMacControl : public WifiCommand
             rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
             rsp_data.status = (NanStatusType)rsp_vndr_data->status;
 
-            ALOGI("NanMacControl:Received response for cmd [%s], TxID %d ret %d\n",
-                    NanRspToString(rsp_data.response_type), id(), rsp_data.status);
+            ALOGI("NanMacControl:Received response [%s] for cmd [%d], TxID %d ret %d\n",
+	            NanRspToString(rsp_data.response_type), rsp_vndr_data->subcmd, id(),
+                    rsp_data.status);
 
-            GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
+            if (rsp_data.status != NAN_STATUS_SUCCESS) {
+                GET_NAN_HANDLE(info)->mHandlers.NotifyResponse(id(), &rsp_data);
+            }
         }
         return NL_SKIP;
     }
@@ -3614,9 +4937,7 @@ class NanMacControl : public WifiCommand
 
         for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
             attr_type = it.get_type();
-
-            if (it.get_type() == NAN_ATTRIBUTE_HANDLE) {
-            } else if (it.get_type() == NAN_ATTRIBUTE_NDP_ID) {
+            if (it.get_type() == NAN_ATTRIBUTE_NDP_ID) {
                 ndp_instance_id = it.get_u32();
                 ALOGI("handleEvent: ndp_instance_id = [%d]\n", ndp_instance_id);
             } else if (attr_type == NAN_ATTRIBUTE_CMD_RESP_DATA) {
@@ -3646,12 +4967,22 @@ class NanMacControl : public WifiCommand
         } else if (is_dp_event(event_id)) {
 
             NanDataPathPrimitive *dp_prim =
-                (NanDataPathPrimitive *)(info.nan_dp_control);
+                    (NanDataPathPrimitive *)(info.nan_dp_control);
             ALOGI("ndp_instance_id = [%d]\n", ndp_instance_id);
             if (dp_prim != NULL) {
                 dp_prim->handleEvent(event);
             } else {
                 ALOGE("%s: dp_primitive is no more available\n", __func__);
+            }
+            return NL_SKIP;
+        } else if (is_pairing_event(event_id)) {
+
+            NanPairingPrimitive *pairing_prim =
+                (NanPairingPrimitive *)(info.nan_pairing_control);
+            if (pairing_prim != NULL) {
+                pairing_prim->handleEvent(event);
+            } else {
+                ALOGE("%s: pairing_primitive is no more available\n", __func__);
             }
             return NL_SKIP;
         } else {
@@ -3666,7 +4997,7 @@ class NanMacControl : public WifiCommand
             }
         }
 
-        switch(event_id) {
+        switch (event_id) {
             case NAN_EVENT_DE_EVENT:
                 NanDiscEngEventInd de_event;
                 memset(&de_event, 0, sizeof(de_event));
@@ -3742,7 +5073,7 @@ class NanMacControl : public WifiCommand
                         memcpy(disabled_ind.nan_reason, it.get_data(), len);
                         disabled_ind.nan_reason[len] = '\0';
                         ALOGI("Disabled nan reason: %s, len = %d\n",
-                            disabled_ind.nan_reason, len);
+                                disabled_ind.nan_reason, len);
                     }
                 }
 
@@ -3813,6 +5144,10 @@ class NanMacControl : public WifiCommand
         unregisterVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
         unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
         unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
+        unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_REQUEST);
+        unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_CONFIRMATION);
+        unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_REQUEST);
+        unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_CONFIRMATION);
     }
     void registerNanVendorEvents()
     {
@@ -3823,71 +5158,39 @@ class NanMacControl : public WifiCommand
         registerVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
         registerVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
         registerVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
+        registerVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_REQUEST);
+        registerVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_CONFIRMATION);
+        registerVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_REQUEST);
+        registerVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_CONFIRMATION);
     }
 };
-
-/* pretty hex print a contiguous buffer */
-static void prhex(const char *msg, u8 *buf, u32 nbytes)
-{
-    char line[128];
-    char *p;
-    int len = sizeof(line);
-    int nchar;
-    u32 i;
-
-    if (msg && (msg[0] != '\0')) {
-        printf("%s:\n", msg);
-    }
-
-    p = line;
-    for (i = 0; i < nbytes; i++) {
-        if (i % 16 == 0) {
-            nchar = snprintf(p, len, "  %04d: ", i);    /* line prefix */
-            p += nchar;
-            len -= nchar;
-        }
-
-        if (len > 0) {
-            nchar = snprintf(p, len, "%02x ", buf[i]);
-            p += nchar;
-            len -= nchar;
-        }
-
-        if (i % 16 == 15) {
-            ALOGE("%s\n", line);       /* flush line */
-            p = line;
-            len = sizeof(line);
-        }
-    }
-
-    /* flush last partial line */
-    if (p != line) {
-        ALOGE("%s\n", line);
-    }
-}
-
 
 static const char *NanRspToString(int cmd_resp)
 {
     switch (cmd_resp) {
         C2S(NAN_RESPONSE_ENABLED)
-            C2S(NAN_RESPONSE_DISABLED)
-            C2S(NAN_RESPONSE_PUBLISH)
-            C2S(NAN_RESPONSE_SUBSCRIBE)
-            C2S(NAN_RESPONSE_PUBLISH_CANCEL)
-            C2S(NAN_RESPONSE_SUBSCRIBE_CANCEL)
-            C2S(NAN_RESPONSE_TRANSMIT_FOLLOWUP)
-            C2S(NAN_RESPONSE_CONFIG)
-            C2S(NAN_RESPONSE_TCA)
-            C2S(NAN_RESPONSE_STATS)
-            C2S(NAN_DP_INTERFACE_CREATE)
-            C2S(NAN_DP_INTERFACE_DELETE)
-            C2S(NAN_DP_INITIATOR_RESPONSE)
-            C2S(NAN_DP_RESPONDER_RESPONSE)
-            C2S(NAN_DP_END)
-            C2S(NAN_GET_CAPABILITIES)
-            C2S(NAN_SUSPEND_REQUEST_RESPONSE)
-            C2S(NAN_RESUME_REQUEST_RESPONSE)
+        C2S(NAN_RESPONSE_DISABLED)
+        C2S(NAN_RESPONSE_PUBLISH)
+        C2S(NAN_RESPONSE_SUBSCRIBE)
+        C2S(NAN_RESPONSE_PUBLISH_CANCEL)
+        C2S(NAN_RESPONSE_SUBSCRIBE_CANCEL)
+        C2S(NAN_RESPONSE_TRANSMIT_FOLLOWUP)
+        C2S(NAN_RESPONSE_CONFIG)
+        C2S(NAN_RESPONSE_TCA)
+        C2S(NAN_RESPONSE_STATS)
+        C2S(NAN_DP_INTERFACE_CREATE)
+        C2S(NAN_DP_INTERFACE_DELETE)
+        C2S(NAN_DP_INITIATOR_RESPONSE)
+        C2S(NAN_DP_RESPONDER_RESPONSE)
+        C2S(NAN_DP_END)
+        C2S(NAN_GET_CAPABILITIES)
+        C2S(NAN_SUSPEND_REQUEST_RESPONSE)
+        C2S(NAN_RESUME_REQUEST_RESPONSE)
+        C2S(NAN_PAIRING_INITIATOR_RESPONSE)
+        C2S(NAN_PAIRING_RESPONDER_RESPONSE)
+        C2S(NAN_PAIRING_END)
+        C2S(NAN_BOOTSTRAPPING_INITIATOR_RESPONSE)
+        C2S(NAN_BOOTSTRAPPING_RESPONDER_RESPONSE)
 
         default:
             return "UNKNOWN_NAN_CMD_RESPONSE";
@@ -3898,27 +5201,33 @@ static const char *NanCmdToString(int cmd)
 {
     switch (cmd) {
         C2S(NAN_REQUEST_ENABLE)
-            C2S(NAN_REQUEST_DISABLE)
-            C2S(NAN_REQUEST_PUBLISH)
-            C2S(NAN_REQUEST_PUBLISH_CANCEL)
-            C2S(NAN_REQUEST_TRANSMIT_FOLLOWUP)
-            C2S(NAN_REQUEST_SUBSCRIBE)
-            C2S(NAN_REQUEST_SUBSCRIBE_CANCEL)
-            C2S(NAN_REQUEST_STATS)
-            C2S(NAN_REQUEST_CONFIG)
-            C2S(NAN_REQUEST_TCA)
-            C2S(NAN_REQUEST_EVENT_CHECK)
-            C2S(NAN_REQUEST_GET_CAPABILTIES)
-            C2S(NAN_DATA_PATH_IFACE_CREATE)
-            C2S(NAN_DATA_PATH_IFACE_DELETE)
-            C2S(NAN_DATA_PATH_INIT_REQUEST)
-            C2S(NAN_DATA_PATH_IND_RESPONSE)
-            C2S(NAN_DATA_PATH_END)
-            C2S(NAN_DATA_PATH_IFACE_UP)
-            C2S(NAN_DATA_PATH_SEC_INFO)
-            C2S(NAN_VERSION_INFO)
-            C2S(NAN_REQUEST_SUSPEND)
-            C2S(NAN_REQUEST_RESUME)
+        C2S(NAN_REQUEST_DISABLE)
+        C2S(NAN_REQUEST_PUBLISH)
+        C2S(NAN_REQUEST_PUBLISH_CANCEL)
+        C2S(NAN_REQUEST_TRANSMIT_FOLLOWUP)
+        C2S(NAN_REQUEST_SUBSCRIBE)
+        C2S(NAN_REQUEST_SUBSCRIBE_CANCEL)
+        C2S(NAN_REQUEST_STATS)
+        C2S(NAN_REQUEST_CONFIG)
+        C2S(NAN_REQUEST_TCA)
+        C2S(NAN_REQUEST_EVENT_CHECK)
+        C2S(NAN_REQUEST_GET_CAPABILTIES)
+        C2S(NAN_DATA_PATH_IFACE_CREATE)
+        C2S(NAN_DATA_PATH_IFACE_DELETE)
+        C2S(NAN_DATA_PATH_INIT_REQUEST)
+        C2S(NAN_DATA_PATH_IND_RESPONSE)
+        C2S(NAN_DATA_PATH_END)
+        C2S(NAN_DATA_PATH_IFACE_UP)
+        C2S(NAN_DATA_PATH_SEC_INFO)
+        C2S(NAN_VERSION_INFO)
+        C2S(NAN_REQUEST_SUSPEND)
+        C2S(NAN_REQUEST_RESUME)
+        C2S(NAN_PAIRING_REQUEST)
+        C2S(NAN_PAIRING_IND_RESPONSE)
+        C2S(NAN_PAIRING_END_REQUEST)
+        C2S(NAN_BOOTSTRAPPING_REQUEST)
+        C2S(NAN_BOOTSTRAPPING_IND_RESPONSE)
+
         default:
             return "UNKNOWN_NAN_CMD";
     }
@@ -3928,83 +5237,97 @@ static const char *NanAttrToString(u16 cmd)
 {
     switch (cmd) {
         C2S(NAN_ATTRIBUTE_HEADER)
-            C2S(NAN_ATTRIBUTE_HANDLE)
-            C2S(NAN_ATTRIBUTE_TRANSAC_ID)
-            C2S(NAN_ATTRIBUTE_5G_SUPPORT)
-            C2S(NAN_ATTRIBUTE_CLUSTER_LOW)
-            C2S(NAN_ATTRIBUTE_CLUSTER_HIGH)
-            C2S(NAN_ATTRIBUTE_SID_BEACON)
-            C2S(NAN_ATTRIBUTE_SYNC_DISC_5G_BEACON)
-            C2S(NAN_ATTRIBUTE_RSSI_CLOSE)
-            C2S(NAN_ATTRIBUTE_RSSI_MIDDLE)
-            C2S(NAN_ATTRIBUTE_RSSI_PROXIMITY)
-            C2S(NAN_ATTRIBUTE_HOP_COUNT_LIMIT)
-            C2S(NAN_ATTRIBUTE_RANDOM_FACTOR)
-            C2S(NAN_ATTRIBUTE_MASTER_PREF)
-            C2S(NAN_ATTRIBUTE_PERIODIC_SCAN_INTERVAL)
-            C2S(NAN_ATTRIBUTE_PUBLISH_ID)
-            C2S(NAN_ATTRIBUTE_TTL)
-            C2S(NAN_ATTRIBUTE_PERIOD)
-            C2S(NAN_ATTRIBUTE_REPLIED_EVENT_FLAG)
-            C2S(NAN_ATTRIBUTE_PUBLISH_TYPE)
-            C2S(NAN_ATTRIBUTE_TX_TYPE)
-            C2S(NAN_ATTRIBUTE_PUBLISH_COUNT)
-            C2S(NAN_ATTRIBUTE_SERVICE_NAME_LEN)
-            C2S(NAN_ATTRIBUTE_SERVICE_NAME)
-            C2S(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN)
-            C2S(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO)
-            C2S(NAN_ATTRIBUTE_RX_MATCH_FILTER_LEN)
-            C2S(NAN_ATTRIBUTE_RX_MATCH_FILTER)
-            C2S(NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN)
-            C2S(NAN_ATTRIBUTE_TX_MATCH_FILTER)
-            C2S(NAN_ATTRIBUTE_SUBSCRIBE_ID)
-            C2S(NAN_ATTRIBUTE_SUBSCRIBE_TYPE)
-            C2S(NAN_ATTRIBUTE_SERVICERESPONSEFILTER)
-            C2S(NAN_ATTRIBUTE_SERVICERESPONSEINCLUDE)
-            C2S(NAN_ATTRIBUTE_USESERVICERESPONSEFILTER)
-            C2S(NAN_ATTRIBUTE_SSIREQUIREDFORMATCHINDICATION)
-            C2S(NAN_ATTRIBUTE_SUBSCRIBE_MATCH)
-            C2S(NAN_ATTRIBUTE_SUBSCRIBE_COUNT)
-            C2S(NAN_ATTRIBUTE_MAC_ADDR)
-            C2S(NAN_ATTRIBUTE_MAC_ADDR_LIST)
-            C2S(NAN_ATTRIBUTE_MAC_ADDR_LIST_NUM_ENTRIES)
-            C2S(NAN_ATTRIBUTE_PUBLISH_MATCH)
-            C2S(NAN_ATTRIBUTE_ENABLE_STATUS)
-            C2S(NAN_ATTRIBUTE_JOIN_STATUS)
-            C2S(NAN_ATTRIBUTE_ROLE)
-            C2S(NAN_ATTRIBUTE_MASTER_RANK)
-            C2S(NAN_ATTRIBUTE_ANCHOR_MASTER_RANK)
-            C2S(NAN_ATTRIBUTE_CNT_PEND_TXFRM)
-            C2S(NAN_ATTRIBUTE_CNT_BCN_TX)
-            C2S(NAN_ATTRIBUTE_CNT_BCN_RX)
-            C2S(NAN_ATTRIBUTE_CNT_SVC_DISC_TX)
-            C2S(NAN_ATTRIBUTE_CNT_SVC_DISC_RX)
-            C2S(NAN_ATTRIBUTE_AMBTT)
-            C2S(NAN_ATTRIBUTE_CLUSTER_ID)
-            C2S(NAN_ATTRIBUTE_INST_ID)
-            C2S(NAN_ATTRIBUTE_OUI)
-            C2S(NAN_ATTRIBUTE_STATUS)
-            C2S(NAN_ATTRIBUTE_DE_EVENT_TYPE)
-            C2S(NAN_ATTRIBUTE_MERGE)
-            C2S(NAN_ATTRIBUTE_IFACE)
-            C2S(NAN_ATTRIBUTE_CHANNEL)
-            C2S(NAN_ATTRIBUTE_PEER_ID)
-            C2S(NAN_ATTRIBUTE_NDP_ID)
-            C2S(NAN_ATTRIBUTE_SECURITY)
-            C2S(NAN_ATTRIBUTE_QOS)
-            C2S(NAN_ATTRIBUTE_RSP_CODE)
-            C2S(NAN_ATTRIBUTE_INST_COUNT)
-            C2S(NAN_ATTRIBUTE_PEER_DISC_MAC_ADDR)
-            C2S(NAN_ATTRIBUTE_PEER_NDI_MAC_ADDR)
-            C2S(NAN_ATTRIBUTE_IF_ADDR)
-            C2S(NAN_ATTRIBUTE_WARMUP_TIME)
-            C2S(NAN_ATTRIBUTE_RANGING_RESULT)
-            C2S(NAN_ATTRIBUTE_RANGING_INDICATION)
-            C2S(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN)
-            C2S(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO)
-            C2S(NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL)
-            C2S(NAN_ATTRIBUTE_ENABLE_MERGE)
-            C2S(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE)
+        C2S(NAN_ATTRIBUTE_HANDLE)
+        C2S(NAN_ATTRIBUTE_TRANSAC_ID)
+        C2S(NAN_ATTRIBUTE_5G_SUPPORT)
+        C2S(NAN_ATTRIBUTE_CLUSTER_LOW)
+        C2S(NAN_ATTRIBUTE_CLUSTER_HIGH)
+        C2S(NAN_ATTRIBUTE_SID_BEACON)
+        C2S(NAN_ATTRIBUTE_SYNC_DISC_5G_BEACON)
+        C2S(NAN_ATTRIBUTE_RSSI_CLOSE)
+        C2S(NAN_ATTRIBUTE_RSSI_MIDDLE)
+        C2S(NAN_ATTRIBUTE_RSSI_PROXIMITY)
+        C2S(NAN_ATTRIBUTE_HOP_COUNT_LIMIT)
+        C2S(NAN_ATTRIBUTE_RANDOM_FACTOR)
+        C2S(NAN_ATTRIBUTE_MASTER_PREF)
+        C2S(NAN_ATTRIBUTE_PERIODIC_SCAN_INTERVAL)
+        C2S(NAN_ATTRIBUTE_PUBLISH_ID)
+        C2S(NAN_ATTRIBUTE_TTL)
+        C2S(NAN_ATTRIBUTE_PERIOD)
+        C2S(NAN_ATTRIBUTE_REPLIED_EVENT_FLAG)
+        C2S(NAN_ATTRIBUTE_PUBLISH_TYPE)
+        C2S(NAN_ATTRIBUTE_TX_TYPE)
+        C2S(NAN_ATTRIBUTE_PUBLISH_COUNT)
+        C2S(NAN_ATTRIBUTE_SERVICE_NAME_LEN)
+        C2S(NAN_ATTRIBUTE_SERVICE_NAME)
+        C2S(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO_LEN)
+        C2S(NAN_ATTRIBUTE_SERVICE_SPECIFIC_INFO)
+        C2S(NAN_ATTRIBUTE_RX_MATCH_FILTER_LEN)
+        C2S(NAN_ATTRIBUTE_RX_MATCH_FILTER)
+        C2S(NAN_ATTRIBUTE_TX_MATCH_FILTER_LEN)
+        C2S(NAN_ATTRIBUTE_TX_MATCH_FILTER)
+        C2S(NAN_ATTRIBUTE_SUBSCRIBE_ID)
+        C2S(NAN_ATTRIBUTE_SUBSCRIBE_TYPE)
+        C2S(NAN_ATTRIBUTE_SERVICERESPONSEFILTER)
+        C2S(NAN_ATTRIBUTE_SERVICERESPONSEINCLUDE)
+        C2S(NAN_ATTRIBUTE_USESERVICERESPONSEFILTER)
+        C2S(NAN_ATTRIBUTE_SSIREQUIREDFORMATCHINDICATION)
+        C2S(NAN_ATTRIBUTE_SUBSCRIBE_MATCH)
+        C2S(NAN_ATTRIBUTE_SUBSCRIBE_COUNT)
+        C2S(NAN_ATTRIBUTE_MAC_ADDR)
+        C2S(NAN_ATTRIBUTE_MAC_ADDR_LIST)
+        C2S(NAN_ATTRIBUTE_MAC_ADDR_LIST_NUM_ENTRIES)
+        C2S(NAN_ATTRIBUTE_PUBLISH_MATCH)
+        C2S(NAN_ATTRIBUTE_ENABLE_STATUS)
+        C2S(NAN_ATTRIBUTE_JOIN_STATUS)
+        C2S(NAN_ATTRIBUTE_ROLE)
+        C2S(NAN_ATTRIBUTE_MASTER_RANK)
+        C2S(NAN_ATTRIBUTE_ANCHOR_MASTER_RANK)
+        C2S(NAN_ATTRIBUTE_CNT_PEND_TXFRM)
+        C2S(NAN_ATTRIBUTE_CNT_BCN_TX)
+        C2S(NAN_ATTRIBUTE_CNT_BCN_RX)
+        C2S(NAN_ATTRIBUTE_CNT_SVC_DISC_TX)
+        C2S(NAN_ATTRIBUTE_CNT_SVC_DISC_RX)
+        C2S(NAN_ATTRIBUTE_AMBTT)
+        C2S(NAN_ATTRIBUTE_CLUSTER_ID)
+        C2S(NAN_ATTRIBUTE_INST_ID)
+        C2S(NAN_ATTRIBUTE_OUI)
+        C2S(NAN_ATTRIBUTE_STATUS)
+        C2S(NAN_ATTRIBUTE_DE_EVENT_TYPE)
+        C2S(NAN_ATTRIBUTE_MERGE)
+        C2S(NAN_ATTRIBUTE_IFACE)
+        C2S(NAN_ATTRIBUTE_CHANNEL)
+        C2S(NAN_ATTRIBUTE_PEER_ID)
+        C2S(NAN_ATTRIBUTE_NDP_ID)
+        C2S(NAN_ATTRIBUTE_SECURITY)
+        C2S(NAN_ATTRIBUTE_QOS)
+        C2S(NAN_ATTRIBUTE_RSP_CODE)
+        C2S(NAN_ATTRIBUTE_INST_COUNT)
+        C2S(NAN_ATTRIBUTE_PEER_DISC_MAC_ADDR)
+        C2S(NAN_ATTRIBUTE_PEER_NDI_MAC_ADDR)
+        C2S(NAN_ATTRIBUTE_IF_ADDR)
+        C2S(NAN_ATTRIBUTE_WARMUP_TIME)
+        C2S(NAN_ATTRIBUTE_RANGING_RESULT)
+        C2S(NAN_ATTRIBUTE_RANGING_INDICATION)
+        C2S(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO_LEN)
+        C2S(NAN_ATTRIBUTE_SDEA_SERVICE_SPECIFIC_INFO)
+        C2S(NAN_ATTRIBUTE_RANDOMIZATION_INTERVAL)
+        C2S(NAN_ATTRIBUTE_ENABLE_MERGE)
+        C2S(NAN_ATTRIBUTE_SVC_CFG_SUPENDABLE)
+        C2S(NAN_ATTRIBUTE_REQUEST_TYPE)
+        C2S(NAN_ATTRIBUTE_AKM)
+        C2S(NAN_ATTRIBUTE_PAIRING_CACHE)
+        C2S(NAN_ATTRIBUTE_OPPURTUNISTIC)
+        C2S(NAN_ATTRIBUTE_COOKIE_LEN)
+        C2S(NAN_ATTRIBUTE_COOKIE)
+        C2S(NAN_ATTRIBUTE_COME_BACK_DELAY)
+        C2S(NAN_ATTRIBUTE_NIRA_NONCE)
+        C2S(NAN_ATTRIBUTE_NIRA_TAG)
+        C2S(NAN_ATTRIBUTE_PEER_NIK)
+        C2S(NAN_ATTRIBUTE_LOCAL_NIK)
+        C2S(NAN_ATTRIBUTE_ENAB_PAIRING_SETUP)
+        C2S(NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION)
+        C2S(NAN_ATTRIBUTE_BS_METHODS)
 
         default:
             return "NAN_ATTRIBUTE_UNKNOWN";
@@ -4070,6 +5393,21 @@ NanResponseType get_response_type(WIFI_SUB_COMMAND nan_subcmd)
         case NAN_SUBCMD_RESUME:
             response_type = NAN_RESUME_REQUEST_RESPONSE;
             break;
+        case NAN_SUBCMD_PAIRING_REQUEST:
+            response_type = NAN_PAIRING_INITIATOR_RESPONSE;
+            break;
+        case NAN_SUBCMD_PAIRING_RESPONSE:
+            response_type = NAN_PAIRING_RESPONDER_RESPONSE;
+            break;
+        case NAN_SUBCMD_PAIRING_END:
+            response_type = NAN_PAIRING_END;
+            break;
+        case NAN_SUBCMD_BOOTSTRAPPING_REQUEST:
+            response_type = NAN_BOOTSTRAPPING_INITIATOR_RESPONSE;
+            break;
+        case NAN_SUBCMD_BOOTSTRAPPING_RESPONSE:
+            response_type = NAN_BOOTSTRAPPING_RESPONDER_RESPONSE;
+            break;
         default:
             /* unknown response for a command */
             response_type = NAN_RESPONSE_ERROR;
@@ -4132,6 +5470,7 @@ static int get_svc_hash(unsigned char *svc_name,
     return WIFI_SUCCESS;
 }
 
+#ifdef CONFIG_BRCM
 static int dump_NanEnableRequest(NanEnableRequest* msg)
 {
     ALOGI("%s: Dump NanEnableRequest msg:\n", __func__);
@@ -4237,7 +5576,6 @@ static int dump_NanEnableRequest(NanEnableRequest* msg)
     return WIFI_SUCCESS;
 }
 
-#ifdef CONFIG_BRCM
 static int dump_NanConfigRequestRequest(NanConfigRequest* msg)
 {
     ALOGI("%s: Dump NanConfigRequest msg:\n", __func__);
@@ -4264,7 +5602,8 @@ static int dump_NanConfigRequestRequest(NanConfigRequest* msg)
     ALOGI("fam_val.famchan[0].class_val=%u\n", msg->fam_val.famchan[0].class_val);
     ALOGI("fam_val.famchan[0].channel=%u\n", msg->fam_val.famchan[0].channel);
     ALOGI("fam_val.famchan[0].mapid=%u\n", msg->fam_val.famchan[0].mapid);
-    ALOGI("fam_val.famchan[0].avail_interval_bitmap=%u\n", msg->fam_val.famchan[0].avail_interval_bitmap);
+    ALOGI("fam_val.famchan[0].avail_interval_bitmap=%u\n",
+            msg->fam_val.famchan[0].avail_interval_bitmap);
     ALOGI("config_dw.config_2dot4g_dw_band=%u\n", msg->config_dw.config_2dot4g_dw_band);
     if (msg->config_dw.config_2dot4g_dw_band) {
         ALOGI("dw_2dot4g_interval_val=%u\n", msg->config_dw.dw_2dot4g_interval_val);
@@ -4313,7 +5652,7 @@ static int dump_NanConfigRequestRequest(NanConfigRequest* msg)
 
 static int dump_NanPublishRequest(NanPublishRequest* msg)
 {
-    ALOGI("%s: Dump NanPublishRequest msg:\n", __func__);
+    ALOGI("%s:Dump NanPublishRequest msg:\n", __func__);
     if (msg == NULL) {
         ALOGE("Invalid msg\n");
         return WIFI_ERROR_UNKNOWN;
@@ -4326,21 +5665,34 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("publish_count=%u\n", msg->publish_count);
     ALOGI("publish_match_indicator=%u\n", msg->publish_match_indicator);
     ALOGI("service_responder_policy=%u\n", msg->service_responder_policy);
-    ALOGI("service_name_len=%u\n", msg->service_name_len);
     if (msg->service_name_len) {
-        ALOGI("service_name=%s\n", msg->service_name);
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+           ALOGE("Invalid service_name len %d\n", msg->service_name_len);
+        } else {
+            ALOGI("service_name_len=%u\n", msg->service_name_len);
+            ALOGI("service_name=%s\n", msg->service_name);
+        }
     }
-    ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
     if (msg->service_specific_info_len) {
-        prhex("service_specific_info",
-            msg->service_specific_info, msg->service_specific_info_len);
+        if (msg->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+            ALOGE("Invalid svc specific info len %d\n",
+                msg->service_specific_info_len);
+        } else {
+            ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+            prhex("service_specific_info",
+                    msg->service_specific_info, msg->service_specific_info_len);
+        }
     }
-    ALOGI("rx_match_filter_len=%u\n", msg->rx_match_filter_len);
     if (msg->rx_match_filter_len) {
+        if (msg->rx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+            ALOGE("%s Invalid rx match filter len %d\n", __func__, msg->rx_match_filter_len);
+        }
         prhex("rx_match_filter", msg->rx_match_filter, msg->rx_match_filter_len);
     }
-    ALOGI("tx_match_filter_len=%u\n", msg->tx_match_filter_len);
     if (msg->tx_match_filter_len) {
+        if (msg->tx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+            ALOGE("%s Invalid tx match filter len %d\n", __func__, msg->tx_match_filter_len);
+        }
         prhex("tx_match_filter", msg->tx_match_filter, msg->tx_match_filter_len);
     }
     ALOGI("rssi_threshold_flag=%u\n", msg->rssi_threshold_flag);
@@ -4360,8 +5712,21 @@ static int dump_NanPublishRequest(NanPublishRequest* msg)
     ALOGI("NanRangingAutoResponse = %u\n", msg->ranging_auto_response);
     ALOGI("range_response_cfg=%u\n", msg->range_response_cfg.ranging_response);
 
-    ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-
+    if (msg->sdea_service_specific_info_len) {
+        if (msg->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+            ALOGE("%s Invalid sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        } else {
+            ALOGE("%s sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        }
+    }
+    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
+    ALOGI("enable_pairing_setup=%u\n", msg->nan_pairing_config.enable_pairing_setup);
+    ALOGI("enable_pairing_verification=%u\n", msg->nan_pairing_config.enable_pairing_verification);
+    ALOGI("enable_pairing_cache=%u\n", msg->nan_pairing_config.enable_pairing_cache);
+    ALOGI("Supported BS methods=%u\n", msg->nan_pairing_config.supported_bootstrapping_methods);
+    prhex("NIK:", msg->nan_identity_key, NAN_IDENTITY_KEY_LEN);
     return WIFI_SUCCESS;
 }
 
@@ -4383,16 +5748,35 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("ssiRequiredForMatchIndication=%u\n", msg->ssiRequiredForMatchIndication);
     ALOGI("subscribe_count=%u\n", msg->subscribe_count);
     ALOGI("subscribe_match_indicator=%u\n", msg->subscribe_match_indicator);
-    ALOGI("service_name_len=%u\n", msg->service_name_len);
-    if (msg->service_name_len)
-        ALOGI("service_name=%s\n", msg->service_name);
-    ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
-    ALOGI("rx_match_filter_len=%u\n", msg->rx_match_filter_len);
-    if (msg->rx_match_filter_len)
+    if (msg->service_name_len) {
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+            ALOGE("Invalid service_name len %d\n", msg->service_name_len);
+        } else {
+            ALOGI("service_name_len=%u\n", msg->service_name_len);
+            ALOGI("service_name=%s\n", msg->service_name);
+        }
+    }
+    if (msg->service_specific_info_len) {
+        if (msg->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+            ALOGE("Invalid svc specific info len %d\n", msg->service_specific_info_len);
+        } else {
+            ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+            prhex("service_specific_info",
+                    msg->service_specific_info, msg->service_specific_info_len);
+        }
+    }
+    if (msg->rx_match_filter_len) {
+        if (msg->rx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+            ALOGE("%s Invalid rx match filter len %d\n", __func__, msg->rx_match_filter_len);
+        }
         prhex("rx_match_filter", msg->rx_match_filter, msg->rx_match_filter_len);
-    ALOGI("tx_match_filter_len=%u\n", msg->tx_match_filter_len);
-    if (msg->tx_match_filter_len)
-        prhex("tx_match_filter", msg->tx_match_filter, msg->tx_match_filter_len);
+    }
+    if (msg->tx_match_filter_len) {
+        if (msg->tx_match_filter_len > NAN_MAX_MATCH_FILTER_LEN) {
+            ALOGE("%s Invalid tx match filter len %d\n", __func__, msg->tx_match_filter_len);
+        }
+        prhex("tx_match_filter", msg->rx_match_filter, msg->tx_match_filter_len);
+    }
     ALOGI("rssi_threshold_flag=%u\n", msg->rssi_threshold_flag);
     ALOGI("connmap=%u\n", msg->connmap);
     ALOGI("num_intf_addr_present=%u\n", msg->num_intf_addr_present);
@@ -4416,7 +5800,21 @@ static int dump_NanSubscribeRequest(NanSubscribeRequest* msg)
     ALOGI("NanRangingAutoResponse = %u\n", msg->ranging_auto_response);
     ALOGI("range_response = %u\n", msg->range_response_cfg.ranging_response);
 
-    ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
+    if (msg->sdea_service_specific_info_len) {
+        if (msg->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+            ALOGE("%s Invalid sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        } else {
+            ALOGE("%s sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        }
+    }
+    ALOGI("enable_suspendability=%u\n", msg->enable_suspendability);
+    ALOGI("enable_pairing_setup=%u\n", msg->nan_pairing_config.enable_pairing_setup);
+    ALOGI("enable_pairing_verification=%u\n", msg->nan_pairing_config.enable_pairing_verification);
+    ALOGI("enable_pairing_cache=%u\n", msg->nan_pairing_config.enable_pairing_cache);
+    ALOGI("Supported BS methods=%u\n", msg->nan_pairing_config.supported_bootstrapping_methods);
+    prhex("NIK:", msg->nan_identity_key, NAN_IDENTITY_KEY_LEN);
 
     return WIFI_SUCCESS;
 }
@@ -4433,10 +5831,26 @@ static int dump_NanTransmitFollowupRequest(NanTransmitFollowupRequest* msg)
     ALOGI("addr=" MACSTR "\n", MAC2STR(msg->addr));
     ALOGI("priority=%u\n", msg->priority);
     ALOGI("dw_or_faw=%u\n", msg->dw_or_faw);
-    ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+    if (msg->service_specific_info_len) {
+        if (msg->service_specific_info_len > NAN_MAX_SVC_INFO_LEN) {
+            ALOGE("Invalid svc specific info len %d\n",
+                    msg->service_specific_info_len);
+        } else {
+            ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+            prhex("service_specific_info",
+                    msg->service_specific_info, msg->service_specific_info_len);
+        }
+    }
     ALOGI("recv_indication_cfg=%u\n", msg->recv_indication_cfg);
-    ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
-
+    if (msg->sdea_service_specific_info_len) {
+        if (msg->sdea_service_specific_info_len > NAN_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN) {
+            ALOGE("%s Invalid sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        } else {
+            ALOGE("%s sdea svc specific info %d\n",
+                    __func__, msg->sdea_service_specific_info_len);
+        }
+    }
     return WIFI_SUCCESS;
 }
 
@@ -4465,7 +5879,12 @@ static int dump_NanDataPathInitiatorRequest(NanDataPathInitiatorRequest* msg)
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
     ALOGI("scid_len=%u\n", msg->scid_len);
     if (msg->service_name_len) {
-        ALOGI("service_name=%s\n", msg->service_name);
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+            ALOGE("Invalid service_name len %d\n", msg->service_name_len);
+        } else {
+            ALOGI("service_name_len=%u\n", msg->service_name_len);
+            ALOGI("service_name=%s\n", msg->service_name);
+        }
     }
     return WIFI_SUCCESS;
 }
@@ -4491,14 +5910,113 @@ static int dump_NanDataPathIndicationResponse(NanDataPathIndicationResponse* msg
     }
     ALOGI("cipher_type=%u\n", msg->cipher_type);
     ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
-    ALOGI("service_name_len=%u\n", msg->service_name_len);
     ALOGI("scid_len=%u\n", msg->scid_len);
     if (msg->service_name_len) {
-        ALOGI("service_name=%s\n", msg->service_name);
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+            ALOGE("Invalid service_name len %d\n", msg->service_name_len);
+        } else {
+            ALOGI("service_name_len=%u\n", msg->service_name_len);
+            ALOGI("service_name=%s\n", msg->service_name);
+        }
     }
     return WIFI_SUCCESS;
 }
 #endif /* CONFIG_BRCM */
+
+static int dump_NanPairingRequest(NanPairingRequest* msg)
+{
+    ALOGI("%s: Dump NanpairingRequest msg:\n", __func__);
+    if (msg == NULL) {
+        ALOGE("Invalid msg\n");
+        return WIFI_ERROR_UNKNOWN;
+    }
+    ALOGI("requestor instance id=%u\n", msg->requestor_instance_id);
+    ALOGI("peer_disc_mac_addr=" MACSTR "\n", MAC2STR(msg->peer_disc_mac_addr));
+    ALOGI("pairing request type=%u\n", msg->nan_pairing_request_type);
+    ALOGI("is_oportunistic=%u\n", msg->is_opportunistic);
+    ALOGI("akm=%u\n", msg->akm);
+    ALOGI("enable_pairing_cache=%u\n", msg->enable_pairing_cache);
+    ALOGI("cipher_type=%u\n", msg->cipher_type);
+    ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
+    prhex("key_info:", msg->key_info.body.passphrase_info.passphrase,
+            msg->key_info.body.passphrase_info.passphrase_len);
+    prhex("NIK:", msg->nan_identity_key, NAN_IDENTITY_KEY_LEN);
+    return WIFI_SUCCESS;
+}
+
+static int dump_NanPairingIndResponse(NanPairingIndicationResponse* msg)
+{
+    ALOGI("%s: Dump NanPairingIndicationResponse msg:\n", __func__);
+    if (msg == NULL) {
+        ALOGE("Invalid msg\n");
+        return WIFI_ERROR_UNKNOWN;
+    }
+    ALOGI("Pairing instance id=%u\n", msg->pairing_instance_id);
+    ALOGI("pairing request type=%u\n", msg->nan_pairing_request_type);
+    ALOGI("response_code=%u\n", msg->rsp_code);
+    ALOGI("is_oportunistic=%u\n", msg->is_opportunistic);
+    ALOGI("akm=%u\n", msg->akm);
+    ALOGI("enable_pairing_cache=%u\n", msg->enable_pairing_cache);
+    ALOGI("cipher_type=%u\n", msg->cipher_type);
+    ALOGI("key_info: key_type =%u\n", msg->key_info.key_type);
+    prhex("key_info:", msg->key_info.body.passphrase_info.passphrase,
+            msg->key_info.body.passphrase_info.passphrase_len);
+    prhex("NIK:", msg->nan_identity_key, NAN_IDENTITY_KEY_LEN);
+    return WIFI_SUCCESS;
+}
+
+static int dump_NanBootstrapingRequest(NanBootstrappingRequest* msg)
+{
+    ALOGI("%s: Dump NanBootstrappingRequest msg:\n", __func__);
+    if (msg == NULL) {
+        ALOGE("Invalid msg\n");
+        return WIFI_ERROR_UNKNOWN;
+    }
+    ALOGI("publish_subscribe_id=%u\n", msg->publish_subscribe_id);
+    ALOGI("peer requestor instance id=%u\n", msg->requestor_instance_id);
+    ALOGI("peer_disc_mac_addr=" MACSTR "\n", MAC2STR(msg->peer_disc_mac_addr));
+    ALOGI("request_bootstrapping_method=%u\n", msg->request_bootstrapping_method);
+    ALOGI("cookie_length=%u\n", msg->cookie_length);
+    if (msg->cookie_length) {
+        prhex(NULL, msg->cookie, msg->cookie_length);
+    }
+    ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+    if (msg->service_specific_info_len) {
+        ALOGI("service_specific_info=%s\n", msg->service_specific_info);
+    }
+    ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
+    if (msg->sdea_service_specific_info_len) {
+        ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
+    }
+    return WIFI_SUCCESS;
+}
+
+static int dump_NanBootstrapingIndResponse(NanBootstrappingIndicationResponse* msg)
+{
+    ALOGI("%s: Dump NanBootstrappingIndicationResponse msg:\n", __func__);
+    if (msg == NULL) {
+        ALOGE("Invalid msg\n");
+        return WIFI_ERROR_UNKNOWN;
+    }
+    ALOGI("publish_subscribe_id=%u\n", msg->publish_subscribe_id);
+    ALOGI("peer service_instance_id=%u\n", msg->service_instance_id);
+    ALOGI("peer_disc_mac_addr=" MACSTR "\n", MAC2STR(msg->peer_disc_mac_addr));
+    ALOGI("response_code=%u\n", msg->rsp_code);
+    ALOGI("come_back_delay=%u\n", msg->come_back_delay);
+    ALOGI("cookie_length=%u\n", msg->cookie_length);
+    if (msg->cookie_length) {
+        prhex(NULL, msg->cookie, msg->cookie_length);
+    }
+    ALOGI("service_specific_info_len=%u\n", msg->service_specific_info_len);
+    if (msg->service_specific_info_len) {
+        ALOGI("service_specific_info=%s\n", msg->service_specific_info);
+    }
+    ALOGI("sdea_service_specific_info_len=%u\n", msg->sdea_service_specific_info_len);
+    if (msg->sdea_service_specific_info_len) {
+        ALOGI("sdea_service_specific_info=%s\n", msg->sdea_service_specific_info);
+    }
+    return WIFI_SUCCESS;
+}
 
 void nan_reset_dbg_counters()
 {
@@ -4532,9 +6050,9 @@ wifi_error nan_enable_request(transaction_id id,
         wifi_interface_handle iface, NanEnableRequest* msg)
 {
     wifi_error ret = WIFI_SUCCESS;
-   hal_info *h_info = getHalInfo(iface);
+    hal_info *h_info = getHalInfo(iface);
 
-	ALOGE("nan_enable_request: nan_state = %d\n", h_info->nan_state);
+    ALOGE("nan_enable_request: nan_state = %d\n", h_info->nan_state);
 
 #ifdef CHRE_NAN
     //check if host NAN is pre-empting CHRE NAN
@@ -4597,6 +6115,7 @@ wifi_error nan_cmn_disable_request(transaction_id id, NanMacControl *mac)
 
     return ret;
 }
+
 wifi_error nan_disable_request(transaction_id id,
         wifi_interface_handle iface)
 {
@@ -4619,8 +6138,7 @@ wifi_error nan_disable_request(transaction_id id,
         ALOGE("Disable NAN MAC transId= %d\n", id);
         mac_prim->setId(id);
     } else {
-        ALOGE("Invalid transId= %d cur= %d\n", id,
-              mac_prim ? mac_prim->getId() : -1);
+        ALOGE("Invalid transId= %d cur= %d\n", id, mac_prim->getId());
     }
 
     cmd->setChreNan(0);
@@ -4748,6 +6266,77 @@ wifi_error nan_transmit_followup_request(transaction_id id,
     return ret;
 }
 
+/* Function to prepare cmd request to wifi driver for the cmd received from upper layers/Halutil */
+wifi_error nan_create_pairing_bootstrap_cmd_request(transaction_id id,
+        wifi_interface_handle iface, void* msg, NanRequestType cmdType)
+{
+    wifi_error ret = WIFI_SUCCESS;
+    wifi_handle handle = getWifiHandle(iface);
+    NanPairingPrimitive *cmd;
+
+    ALOGI("Nan Pairing bootstrapping cmd %d , halHandle = %p TxId %d ", cmdType, handle, id);
+    cmd = new NanPairingPrimitive(iface, id, msg, cmdType);
+    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
+    cmd->setTransactionId(id);
+
+    ret = (wifi_error)cmd->start();
+    if (ret != WIFI_SUCCESS) {
+        ALOGE("%s : failed in start, error = %d\n", __func__, ret);
+    }
+    cmd->releaseRef();
+    return ret;
+
+}
+
+/* Function to send NAN pairing request to the wifi driver */
+wifi_error nan_pairing_request(transaction_id id,
+        wifi_interface_handle iface, NanPairingRequest* msg)
+{
+    NanRequestType cmdType = NAN_PAIRING_REQUEST;
+    dump_NanPairingRequest(msg);
+
+    return nan_create_pairing_bootstrap_cmd_request(id, iface, (void *)msg, cmdType);
+}
+
+/* Function to send NAN pairing indication response to the wifi driver */
+wifi_error nan_pairing_indication_response(transaction_id id,
+        wifi_interface_handle iface, NanPairingIndicationResponse* msg)
+{
+    NanRequestType cmdType = NAN_PAIRING_IND_RESPONSE;
+    dump_NanPairingIndResponse(msg);
+
+    return nan_create_pairing_bootstrap_cmd_request(id, iface, (void *)msg, cmdType);
+}
+
+/* Function to send NAN pairing end request to the wifi driver */
+wifi_error nan_pairing_end(transaction_id id,
+        wifi_interface_handle iface, NanPairingEndRequest* msg)
+{
+    NanRequestType cmdType = NAN_PAIRING_END_REQUEST;
+
+    return nan_create_pairing_bootstrap_cmd_request(id, iface, (void *)msg, cmdType);
+}
+
+/* Function to send NAN bootstrapping request to the wifi driver */
+wifi_error nan_bootstrapping_request(transaction_id id,
+        wifi_interface_handle iface, NanBootstrappingRequest* msg)
+{
+    NanRequestType cmdType = NAN_BOOTSTRAPPING_REQUEST;
+    dump_NanBootstrapingRequest(msg);
+
+    return nan_create_pairing_bootstrap_cmd_request(id, iface, (void *)msg, cmdType);
+}
+
+/* Function to send NAN bootstrapping indication response to the wifi driver */
+wifi_error nan_bootstrapping_indication_response(transaction_id id,
+        wifi_interface_handle iface, NanBootstrappingIndicationResponse* msg)
+{
+    NanRequestType cmdType = NAN_BOOTSTRAPPING_IND_RESPONSE;
+    dump_NanBootstrapingIndResponse(msg);
+
+    return nan_create_pairing_bootstrap_cmd_request(id, iface, (void *)msg, cmdType);
+}
+
 /* Function to send NAN statistics request to the wifi driver */
 wifi_error nan_stats_request(transaction_id id,
         wifi_interface_handle iface, NanStatsRequest* msg)
@@ -4756,20 +6345,7 @@ wifi_error nan_stats_request(transaction_id id,
 
     ALOGI("Nan Stats, halHandle = %p", handle);
 
-#ifdef NOT_SUPPORTED
-    NanRequestType cmdType = NAN_REQUEST_STATS;
-    wifi_error ret = WIFI_SUCCESS;
-    NanCommand *cmd = new NanCommand(iface, id, (void *)msg, cmdType);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    ret = (wifi_error)cmd->start();
-    if (ret != WIFI_SUCCESS) {
-        ALOGE("%s : failed in start, error = %d\n", __func__, ret);
-    }
-    cmd->releaseRef();
-    return ret;
-#else
     return WIFI_ERROR_NOT_SUPPORTED;
-#endif
 }
 
 /* Function to send NAN configuration request to the wifi driver */
@@ -4901,6 +6477,10 @@ wifi_error nan_deinit_handler()
         delete (NanDataPathPrimitive*)info.nan_dp_control;
         info.nan_dp_control = NULL;
     }
+    if (info.nan_pairing_control) {
+        delete(NanPairingPrimitive*)info.nan_pairing_control;
+        info.nan_pairing_control = NULL;
+    }
     if (NAN_HANDLE(info)) {
         delete GET_NAN_HANDLE(info);
         NAN_HANDLE(info) = NULL;
@@ -4934,7 +6514,12 @@ wifi_error nan_register_handler(wifi_interface_handle iface,
         (void*)new NanDataPathPrimitive(iface, 0, NULL, NAN_REQUEST_LAST);
     NULL_CHECK_RETURN(info.nan_dp_control, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
 
-    /* register for Nan vendor events with info mac class*/
+    info.nan_pairing_control =
+            (void*)new NanPairingPrimitive(iface, 0, NULL, NAN_REQUEST_LAST);
+    NULL_CHECK_RETURN(info.nan_pairing_control, "memory allocation failure",
+            WIFI_ERROR_OUT_OF_MEMORY);
+
+    /* register for Nan vendor events with info mac class */
     NanMacControl *cmd_event = (NanMacControl*)(info.nan_mac_control);
     cmd_event->registerNanVendorEvents();
     return WIFI_SUCCESS;
@@ -5022,6 +6607,10 @@ class NanEventCap : public WifiCommand
             unregisterVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
             unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
             unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
+            unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_REQUEST);
+            unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_CONFIRMATION);
+            unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_REQUEST);
+            unregisterVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_CONFIRMATION);
         }
         void registerNanVendorEvents()
         {
@@ -5032,6 +6621,10 @@ class NanEventCap : public WifiCommand
             registerVendorHandler(GOOGLE_OUI, NAN_ASYNC_RESPONSE_DISABLED);
             registerVendorHandler(GOOGLE_OUI, NAN_EVENT_MATCH_EXPIRY);
             registerVendorHandler(GOOGLE_OUI, NAN_EVENT_SUSPENSION_STATUS);
+            registerVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_REQUEST);
+            registerVendorHandler(GOOGLE_OUI, NAN_EVENT_PAIRING_CONFIRMATION);
+            registerVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_REQUEST);
+            registerVendorHandler(GOOGLE_OUI, NAN_EVENT_BOOTSTRAPPING_CONFIRMATION);
         }
 
         int handleEvent(WifiEvent& event) {
@@ -5073,7 +6666,7 @@ class NanEventCap : public WifiCommand
                             } else if (de_type == NAN_EVENT_MERGE) {
                                 ALOGI("received Merge Event\n");
                             } else {
-                                ALOGI("received unknown DE event, [%d]\n", de_type);
+                                ALOGI("EventCap: received unknown DE event, [%d]\n", de_type);
                             }
                         } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
                             memcpy(&de_event.data.cluster.addr, it.get_data(), NAN_MAC_ADDR_LEN);
@@ -5219,7 +6812,31 @@ class NanEventCap : public WifiCommand
                                 (NanDataPathSecurityCfgStatus)it.get_u8();
                         } else if (attr_type == NAN_ATTRIBUTE_SDE_CONTROL_RANGE_SUPPORT) {
                             ALOGI("Ranging report state: %u", it.get_u8());
-                            subscribe_event.peer_sdea_params.range_report = (NanRangeReport)it.get_u8();
+                            subscribe_event.peer_sdea_params.range_report =
+                                    (NanRangeReport)it.get_u8();
+                        } else if (attr_type == NAN_ATTRIBUTE_ENAB_PAIRING_SETUP) {
+                            ALOGI("Enabe pairing setup: %u", it.get_u32());
+                            subscribe_event.peer_pairing_config.enable_pairing_setup = it.get_u32();
+                        } else if (attr_type == NAN_ATTRIBUTE_ENAB_PAIRING_VERIFICATION) {
+                            ALOGI("Enabe pairing Verification: %u", it.get_u32());
+                            subscribe_event.peer_pairing_config.enable_pairing_verification =
+                                    it.get_u32();
+                        } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                            ALOGI("Enabe pairing cache: %u", it.get_u32());
+                            subscribe_event.peer_pairing_config.enable_pairing_cache = it.get_u32();
+                        } else if (attr_type == NAN_ATTRIBUTE_BS_METHODS) {
+                            ALOGI("Supported bootstrapping methods : %u", it.get_u16());
+                            subscribe_event.peer_pairing_config.supported_bootstrapping_methods =
+                                    it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_NIRA_TAG) {
+                            memcpy(subscribe_event.nira.tag, it.get_data(), NAN_IDENTITY_TAG_LEN);
+                            prhex("NIRA tag", subscribe_event.nira.tag, NAN_IDENTITY_TAG_LEN);
+
+                        } else if (attr_type == NAN_ATTRIBUTE_NIRA_NONCE) {
+                            memcpy(subscribe_event.nira.nonce, it.get_data(),
+                                    NAN_IDENTITY_NONCE_LEN);
+                            prhex("NIRA nonce", subscribe_event.nira.nonce, NAN_IDENTITY_NONCE_LEN);
                         }
                     }
 
@@ -5498,11 +7115,11 @@ class NanEventCap : public WifiCommand
                         } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
                             followup_ind.reason = (NanStatusType)it.get_u8();
                         } else if (attr_type == NAN_ATTRIBUTE_REASON) {
-                            u8 len = min(it.get_len(), (sizeof(followup_ind.nan_reason) - 1));
+                            u8 len = min(it.get_len(), sizeof(followup_ind.nan_reason) - 1);
                             memcpy(followup_ind.nan_reason, it.get_data(), len);
                             followup_ind.nan_reason[len] = '\0';
                             ALOGI("nan transmit followup ind: reason: %s, len = %d\n",
-                               followup_ind.nan_reason, len);
+                                   followup_ind.nan_reason, len);
                         }
                     }
 
@@ -5524,6 +7141,296 @@ class NanEventCap : public WifiCommand
                     GET_NAN_HANDLE(info)->mHandlers.EventSuspensionModeChange(&suspend_ind);
                     break;
                 }
+                case NAN_EVENT_PAIRING_REQUEST: {
+                    NanPairingRequestInd pairing_request_event;
+                    memset(&pairing_request_event, 0, sizeof(NanPairingRequestInd));
+                    ALOGI("Received NAN_EVENT_PAIRING_REQUEST\n");
+
+                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                        attr_type = it.get_type();
+
+                        if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
+                            ALOGI("publish_subscribe_id: %u\n", it.get_u16());
+                            pairing_request_event.publish_subscribe_id = it.get_u16();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
+                            memcpy(pairing_request_event.peer_disc_mac_addr,
+                                    it.get_data(), NAN_MAC_ADDR_LEN);
+                            ALOGI("Discovery MAC addr of the peer/initiator: " MACSTR "\n",
+                                    MAC2STR(pairing_request_event.peer_disc_mac_addr));
+
+                        } else if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                            u32 pairing_id = it.get_u32();
+                            ALOGI("pairing instance id: %u\n", pairing_id);
+
+                            if (ISGREATER(pairing_id, NAN_MAX) ||
+                                    (ISLESS_OR_EQUAL(pairing_id, NAN_MIN))) {
+                                ALOGE("%s:Invalid Pairing ID: %u \n", __func__, pairing_id);
+                                goto fail;
+                            }
+                            pairing_request_event.pairing_instance_id = pairing_id;
+
+                        } else if (attr_type == NAN_ATTRIBUTE_REQUEST_TYPE) {
+                            ALOGI("Pairing request type: %u\n", it.get_u16());
+                            pairing_request_event.nan_pairing_request_type =
+                                    (NanPairingRequestType)it.get_u16();
+                            if ((pairing_request_event.nan_pairing_request_type >
+                                    NAN_PAIRING_VERIFICATION) ||
+                                    (pairing_request_event.nan_pairing_request_type <
+                                    NAN_PAIRING_SETUP)) {
+                                ALOGE("INVALID Pairing request type %u\n",
+                                        pairing_request_event.nan_pairing_request_type);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                            ALOGI("Pairing cache enabled: %u\n", (u8)it.get_u32());
+                            pairing_request_event.enable_pairing_cache = (u8)it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_NIRA_TAG) {
+                            memcpy(pairing_request_event.nira.tag, it.get_data(),
+                                    NAN_IDENTITY_TAG_LEN);
+                            prhex("NIRA tag", pairing_request_event.nira.tag,
+                                    NAN_IDENTITY_TAG_LEN);
+
+                        } else if (attr_type == NAN_ATTRIBUTE_NIRA_NONCE) {
+                            memcpy(pairing_request_event.nira.nonce, it.get_data(),
+                                    NAN_IDENTITY_NONCE_LEN);
+                            prhex("NIRA nonce", pairing_request_event.nira.nonce,
+                                    NAN_IDENTITY_NONCE_LEN);
+
+                        }
+                    }
+
+                    if (!pairing_request_event.publish_subscribe_id ||
+                            !pairing_request_event.pairing_instance_id) {
+                        ALOGE("Check invalid params received pub_sub_id: 0x%x pairing_id: %u\n",
+                                pairing_request_event.publish_subscribe_id,
+                                pairing_request_event.pairing_instance_id);
+                        goto fail;
+                    }
+
+                    GET_NAN_HANDLE(info)->mHandlers.EventPairingRequest(&pairing_request_event);
+                    break;
+                }
+                case NAN_EVENT_PAIRING_CONFIRMATION: {
+                    NanPairingConfirmInd pairing_confirm_event;
+                    u32 pmk_len = 0;
+                    memset(&pairing_confirm_event, 0, sizeof(NanPairingConfirmInd));
+                    ALOGI("Received NAN_EVENT_PAIRING_CONFIRMATION\n");
+
+                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                        attr_type = it.get_type();
+
+                        if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                            ALOGI("pairing instance id: %u\n", it.get_u32());
+                            pairing_confirm_event.pairing_instance_id = it.get_u32();
+                            if ((pairing_confirm_event.pairing_instance_id <= NAN_MIN) ||
+                                    (pairing_confirm_event.pairing_instance_id > NAN_MAX)) {
+                                ALOGE("INVALID Pairing instance id: %u\n",
+                                        pairing_confirm_event.pairing_instance_id);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
+                            ALOGI("response code: %u\n", (NanPairingResponseCode)it.get_u8());
+                            pairing_confirm_event.rsp_code = (NanPairingResponseCode)it.get_u8();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                            ALOGI("reason_code: %u\n", (NanStatusType)it.get_u8());
+                            pairing_confirm_event.reason_code = (NanStatusType)it.get_u8();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_REQUEST_TYPE) {
+                            ALOGI("Pairing request type: %u\n",
+                                    (NanPairingRequestType)it.get_u16());
+                            pairing_confirm_event.nan_pairing_request_type =
+                                    (NanPairingRequestType)it.get_u16();
+                            if ((pairing_confirm_event.nan_pairing_request_type >
+                                    NAN_PAIRING_VERIFICATION) ||
+                                    (pairing_confirm_event.nan_pairing_request_type <
+                                    NAN_PAIRING_SETUP)) {
+                                ALOGE("INVALID Pairing request type %u\n",
+                                        pairing_confirm_event.nan_pairing_request_type);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_PAIRING_CACHE) {
+                            ALOGI("Pairing cache enabled: %u\n", (u8)it.get_u32());
+                            pairing_confirm_event.enable_pairing_cache = (u8)it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_PEER_NIK) {
+                            memcpy(pairing_confirm_event.npk_security_association.peer_nan_identity_key,
+                                    it.get_data(), NAN_IDENTITY_KEY_LEN);
+                            prhex("Peer NIK:",
+                                pairing_confirm_event.npk_security_association.peer_nan_identity_key,
+                                NAN_IDENTITY_KEY_LEN);
+
+                        } else if (attr_type == NAN_ATTRIBUTE_LOCAL_NIK) {
+                            memcpy(pairing_confirm_event.npk_security_association.local_nan_identity_key,
+                                    it.get_data(), NAN_IDENTITY_KEY_LEN);
+                            prhex("Local NIK:",
+                                pairing_confirm_event.npk_security_association.local_nan_identity_key,
+                                NAN_IDENTITY_KEY_LEN);
+
+                        } else if (attr_type == NAN_ATTRIBUTE_AKM) {
+                            ALOGI("akm: %u\n", (NanAkm)it.get_u8());
+                            pairing_confirm_event.npk_security_association.akm =
+                                    (NanAkm)it.get_u8();
+                            if ((pairing_confirm_event.npk_security_association.akm >
+                                    PASN) || (pairing_confirm_event.npk_security_association.akm <
+                                    SAE)) {
+                                ALOGI("INVALID Pairing AKM type %u\n",
+                                        pairing_confirm_event.npk_security_association.akm);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_CIPHER_SUITE_TYPE) {
+                            u32 csid = it.get_u32();
+                            ALOGI("csid: 0x%x\n", csid);
+                            if ((csid != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_128_MASK) &&
+                                    (csid != NAN_CIPHER_SUITE_PUBLIC_KEY_PASN_256_MASK)) {
+                                ALOGE("%s: Invalid cipher_type received :0x%x \n", __func__, csid);
+                                goto fail;
+                            }
+
+                            pairing_confirm_event.npk_security_association.cipher_type = csid;
+
+                        } else if (attr_type == NAN_ATTRIBUTE_KEY_LEN) {
+                            ALOGI("pmk len: %u\n", it.get_u32());
+                            pmk_len = it.get_u32();
+                            pairing_confirm_event.npk_security_association.npk.pmk_len = pmk_len;
+
+                        } else if (attr_type == NAN_ATTRIBUTE_KEY_DATA) {
+                            memcpy(pairing_confirm_event.npk_security_association.npk.pmk,
+                                    it.get_data(),
+                                    pairing_confirm_event.npk_security_association.npk.pmk_len);
+                            prhex("NPK:",
+                                    (u8 *)pairing_confirm_event.npk_security_association.npk.pmk,
+                                    pairing_confirm_event.npk_security_association.npk.pmk_len);
+                        }
+                    }
+
+                    if (!pairing_confirm_event.npk_security_association.cipher_type ||
+                            !pairing_confirm_event.npk_security_association.npk.pmk_len ||
+                            !pairing_confirm_event.pairing_instance_id) {
+                        ALOGE("Check invalid params received csid:0x%x pmk_len:%u pairing_id: %u\n",
+                                pairing_confirm_event.npk_security_association.cipher_type,
+                                pairing_confirm_event.npk_security_association.npk.pmk_len,
+                                pairing_confirm_event.pairing_instance_id);
+                        goto fail;
+                    }
+
+                    GET_NAN_HANDLE(info)->mHandlers.EventPairingConfirm(&pairing_confirm_event);
+                    break;
+                }
+                case NAN_EVENT_BOOTSTRAPPING_REQUEST: {
+                    NanBootstrappingRequestInd bs_request_event;
+                    memset(&bs_request_event, 0, sizeof(NanBootstrappingRequestInd));
+                    ALOGI("Received NAN_EVENT_BOOTSTRAPPING_REQUEST\n");
+
+                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                        attr_type = it.get_type();
+
+                        if (attr_type == NAN_ATTRIBUTE_SUBSCRIBE_ID) {
+                            ALOGI("publish_subscribe_id: %u\n", it.get_u16());
+                            bs_request_event.publish_subscribe_id = it.get_u16();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_PUBLISH_ID) {
+                            ALOGI("requestor_instance_id: %u\n", it.get_u32());
+                            bs_request_event.requestor_instance_id = it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_MAC_ADDR) {
+                            memcpy(bs_request_event.peer_disc_mac_addr,
+                                    it.get_data(), NAN_MAC_ADDR_LEN);
+                            ALOGI("Discovery MAC addr of the peer/initiator: " MACSTR "\n",
+                                    MAC2STR(bs_request_event.peer_disc_mac_addr));
+
+                        } else if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                            ALOGI("BS instance id: %u\n", it.get_u32());
+                            bs_request_event.bootstrapping_instance_id = it.get_u32();
+                            if ((bs_request_event.bootstrapping_instance_id <= NAN_MIN) ||
+                                    (bs_request_event.bootstrapping_instance_id > NAN_MAX)) {
+                                ALOGE("INVALID bootstrapping instance id: %u\n",
+                                        bs_request_event.bootstrapping_instance_id);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_BS_METHODS) {
+                            ALOGI("Peer BS methods: %u\n", it.get_u16());
+                            bs_request_event.request_bootstrapping_method = it.get_u16();
+
+                        }
+                    }
+
+                    if (!bs_request_event.publish_subscribe_id ||
+                            !bs_request_event.requestor_instance_id ||
+                            !bs_request_event.bootstrapping_instance_id ||
+                            !bs_request_event.request_bootstrapping_method) {
+                        ALOGE("Check invalid params recvd pub_sub_id: 0x%x req_inst_id: %u"
+                                "bootstrapping_id: %u bs_methods 0x%x\n",
+                                bs_request_event.publish_subscribe_id,
+                                bs_request_event.requestor_instance_id,
+                                bs_request_event.bootstrapping_instance_id,
+                                bs_request_event.request_bootstrapping_method);
+                        goto fail;
+                    }
+
+                    GET_NAN_HANDLE(info)->mHandlers.EventBootstrappingRequest(&bs_request_event);
+                    break;
+                }
+                case NAN_EVENT_BOOTSTRAPPING_CONFIRMATION: {
+                    NanBootstrappingConfirmInd bs_confirm_event;
+                    memset(&bs_confirm_event, 0, sizeof(NanBootstrappingConfirmInd));
+                    ALOGI("Received NAN_EVENT_BOOTSTRAPPING_CONFIRMATION\n");
+
+                    for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
+                        attr_type = it.get_type();
+
+                        if (attr_type == NAN_ATTRIBUTE_INST_ID) {
+                            ALOGI("bootstrapping instance id: %u\n", it.get_u32());
+                            bs_confirm_event.bootstrapping_instance_id = it.get_u32();
+
+                            if ((bs_confirm_event.bootstrapping_instance_id <= NAN_MIN) ||
+                                    (bs_confirm_event.bootstrapping_instance_id > NAN_MAX)) {
+                                ALOGE("INVALID bootstrapping instance id: %u\n",
+                                        bs_confirm_event.bootstrapping_instance_id);
+                                goto fail;
+                            }
+
+                        } else if (attr_type == NAN_ATTRIBUTE_RSP_CODE) {
+                            ALOGI("response code: %u\n", (NanBootstrappingResponseCode)it.get_u8());
+                            bs_confirm_event.rsp_code = (NanBootstrappingResponseCode)it.get_u8();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_STATUS) {
+                            ALOGI("reason_code: %u\n", (NanStatusType)it.get_u8());
+                            bs_confirm_event.reason_code = (NanStatusType)it.get_u8();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_COME_BACK_DELAY) {
+                            ALOGI("comeback delay: %u\n", it.get_u32());
+                            bs_confirm_event.come_back_delay = it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_COOKIE_LEN) {
+                            ALOGI("cookie len: %u\n", it.get_u32());
+                            bs_confirm_event.cookie_length = it.get_u32();
+
+                        } else if (attr_type == NAN_ATTRIBUTE_COOKIE) {
+                            memcpy(bs_confirm_event.cookie, it.get_data(),
+                                    bs_confirm_event.cookie_length);
+                            prhex("cookie :", bs_confirm_event.cookie,
+                                    bs_confirm_event.cookie_length);
+
+                        }
+                    }
+
+                    if (!bs_confirm_event.bootstrapping_instance_id) {
+                        ALOGE("Check invalid bootstrapping_id: %u recvd\n",
+                                bs_confirm_event.bootstrapping_instance_id);
+                        goto fail;
+                    }
+
+                    GET_NAN_HANDLE(info)->mHandlers.EventBootstrappingConfirm(&bs_confirm_event);
+                    break;
+                }
 
                 case NAN_EVENT_UNKNOWN:
                     ALOGI("Received NAN_EVENT_UNKNOWN\n");
@@ -5534,6 +7441,12 @@ class NanEventCap : public WifiCommand
                 free(ndp_end_event);
             }
             return NL_SKIP;
+fail:
+            ALOGE("Dropping Pairing Event %d, invalid params received \n", cmd);
+            if (ndp_end_event) {
+                free(ndp_end_event);
+            }
+            return NL_STOP;
         }
 };
 
@@ -5562,7 +7475,12 @@ wifi_error nan_data_interface_create(transaction_id id,
     ret = (wifi_error)cmd->open();
     if (ret != WIFI_SUCCESS) {
         ALOGE("%s : failed in open, error = %d\n", __func__, ret);
+    } else if (!get_halutil_mode()) {
+        /* WAR to cache the nan capabilities */
+        ALOGI("get nan capabilities\n");
+        nan_get_capabilities(0, iface);
     }
+
     cmd->releaseRef();
 
     NAN_DBG_EXIT();
@@ -5606,6 +7524,10 @@ wifi_error nan_data_request_initiator(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_req++;
     if (msg->service_name_len) {
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+            ALOGE("%s: Invalid svc len %d\n", __func__, msg->service_name_len);
+            goto done;
+        }
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
@@ -5691,6 +7613,11 @@ wifi_error nan_data_indication_response(transaction_id id,
 #endif /* CONFIG_BRCM */
     counters.dp_resp++;
     if (msg->service_name_len) {
+        if (msg->service_name_len > NAN_MAX_SERVICE_NAME_LEN) {
+            ALOGE("%s: Invalid svc len %d\n", __func__, msg->service_name_len);
+            goto done;
+        }
+
         if (strncmp(NAN_OOB_INTEROP_SVC_NAME,
                     (char*)msg->service_name, msg->service_name_len) == 0) {
             ALOGI("Use Hardcoded svc_hash\n");
