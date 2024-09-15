@@ -307,3 +307,42 @@ bool get_halutil_mode()
 {
     return halutil_mode;
 }
+/* pretty hex print a contiguous buffer */
+void prhex(const char *msg, u8 *buf, u32 nbytes)
+{
+    char line[128];
+    char *p;
+    int len = sizeof(line);
+    int nchar;
+    u32 i;
+
+    if (msg && (msg[0] != '\0')) {
+        ALOGE("%s: len %d\n", msg, nbytes);
+    }
+
+    p = line;
+    for (i = 0; i < nbytes; i++) {
+        if (i % 16 == 0) {
+            nchar = snprintf(p, len, "  %04d: ", i);    /* line prefix */
+            p += nchar;
+            len -= nchar;
+        }
+
+        if (len > 0) {
+            nchar = snprintf(p, len, "%02x ", buf[i]);
+            p += nchar;
+            len -= nchar;
+        }
+
+        if (i % 16 == 15) {
+            ALOGE("%s\n", line);       /* flush line */
+            p = line;
+            len = sizeof(line);
+        }
+    }
+
+    /* flush last partial line */
+    if (p != line) {
+        ALOGE("%s\n", line);
+    }
+}
