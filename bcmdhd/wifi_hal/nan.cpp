@@ -6121,6 +6121,7 @@ wifi_error nan_disable_request(transaction_id id,
 {
     wifi_error ret = WIFI_SUCCESS;
     hal_info *h_info = getHalInfo(iface);
+    NanMacControl *mac_prim = NULL;
 
     ALOGE("nan_disable_request: nan_state %d\n", h_info->nan_state);
 
@@ -6129,7 +6130,14 @@ wifi_error nan_disable_request(transaction_id id,
         return ret;
     }
 
-    NanMacControl *mac_prim = (NanMacControl*)(info.nan_mac_control);
+    if (NAN_HANDLE(info)) {
+        mac_prim = (NanMacControl*)(info.nan_mac_control);
+    } else {
+        ALOGE("\n info is not allocated, due to driver mismatch... Check DHD\n");
+        return WIFI_ERROR_NOT_SUPPORTED;
+    }
+
+    NULL_CHECK_RETURN(mac_prim, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
     NanMacControl *cmd = new NanMacControl(iface, id, NULL, NAN_REQUEST_LAST);
 
     NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
