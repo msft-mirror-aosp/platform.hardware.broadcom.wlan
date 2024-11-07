@@ -158,7 +158,7 @@ public:
     }
 
     virtual int create() {
-        ALOGD("Creating message to get scan capablities; iface = %d", mIfaceInfo->id);
+        ALOGD("Creating message to get rtt capabilities; iface = %d", mIfaceInfo->id);
 
         int ret = mMsg.create(GOOGLE_OUI, RTT_SUBCMD_GETCAPABILITY);
         if (ret < 0) {
@@ -170,6 +170,8 @@ public:
 
 protected:
     virtual int handleResponse(WifiEvent& reply) {
+        rtt_capabilities_mc_az_t SrcCapabilities;
+        wifi_rtt_capabilities_v3 DestCapabilities;
 
         ALOGD("In GetRttCapabilitiesCommand::handleResponse");
 
@@ -184,11 +186,43 @@ protected:
         void *data = reply.get_vendor_data();
         int len = reply.get_vendor_data_len();
 
-        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d", id, subcmd, len,
-                sizeof(*mCapabilities));
+        ALOGD("Id = %0x, subcmd = %d, len = %d, expected len = %d",
+                id, subcmd, len, sizeof(*mCapabilities));
 
-        memcpy(mCapabilities, data, min(len, (int) sizeof(*mCapabilities)));
+        memset(&SrcCapabilities, 0, sizeof(SrcCapabilities));
+        memset(&DestCapabilities, 0, sizeof(DestCapabilities));
 
+        memcpy(&SrcCapabilities, data,
+                min(len, (int) sizeof(SrcCapabilities)));
+
+        DestCapabilities.rtt_capab.rtt_one_sided_supported =
+                SrcCapabilities.rtt_capab.rtt_one_sided_supported;
+        DestCapabilities.rtt_capab.rtt_ftm_supported =
+                SrcCapabilities.rtt_capab.rtt_ftm_supported;
+        DestCapabilities.rtt_capab.lci_support =
+                SrcCapabilities.rtt_capab.lci_support;
+        DestCapabilities.rtt_capab.lcr_support =
+                SrcCapabilities.rtt_capab.lcr_support;
+        DestCapabilities.rtt_capab.preamble_support =
+                SrcCapabilities.rtt_capab.preamble_support;
+        DestCapabilities.rtt_capab.bw_support =
+                SrcCapabilities.rtt_capab.bw_support;
+        DestCapabilities.rtt_capab.responder_supported = 0;
+        DestCapabilities.rtt_capab.mc_version = 0;
+
+        DestCapabilities.az_preamble_support =
+                SrcCapabilities.az_preamble_support;
+
+        DestCapabilities.az_bw_support =
+                SrcCapabilities.az_bw_support;
+
+        DestCapabilities.ntb_initiator_supported =
+                SrcCapabilities.ntb_initiator_supported;
+
+        DestCapabilities.ntb_responder_supported =
+                SrcCapabilities.ntb_responder_supported;
+
+        memcpy(mCapabilities, &DestCapabilities, sizeof(DestCapabilities));
         return NL_OK;
     }
 };

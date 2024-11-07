@@ -1576,7 +1576,7 @@ static void testRTT()
                 return;
             }
             fprintf(w_fp, "|SSID|BSSID|Primary Freq|Center Freq|Channel BW(0=20MHZ,1=40MZ,2=80MHZ)\n"
-                    "|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|\n"
+                    "is_6g|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|\n"
                     "Num of Burst|FTM retry count|FTMR retry count|LCI|LCR|\n"
                     "Burst Duration|Preamble|BW||NTB Min Meas Time in units of 100us|\n"
                     "NTB Max Meas Time in units of 10ms\n");
@@ -1592,6 +1592,11 @@ static void testRTT()
                         scan_param->ssid, addr[0], addr[1],
                         addr[2], addr[3], addr[4], addr[5],
                         scan_param->channel, RttTypeToString(type));
+
+                if (type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+                    printf("Unsupported rtt_type %d, exit!!\n", type);
+                    return;
+                }
                 params[num_ap].rtt_config.type = type;
                 params[num_ap].rtt_config.channel = get_channel_of_ie(&scan_param->ie_data[0],
                         scan_param->ie_length);
@@ -1686,6 +1691,10 @@ static void testRTT()
                 MAC2STR(responder_addr),
                 params[num_sta].rtt_config.channel.center_freq,
                 RttTypeToString(type));
+        if (type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+             printf("Unsupported rtt_type %d, exit!!\n", type);
+             return;
+        }
         /*As we are doing STA-STA RTT */
         params[num_sta].rtt_config.type = type;
         if (rtt_nan) {
@@ -1750,7 +1759,7 @@ static void testRTT()
             printMsg("\nRTT AP list file does not exist on %s.\n"
                     "Please specify correct full path or use default one, %s, \n"
                     "  by following order in file, such as:\n"
-                    "SSID | BSSID | chan_num |Channel BW(0=20MHZ,1=40MZ,2=80MHZ)|"
+                    "SSID | BSSID | chan_num | Channel BW(0=20MHZ,1=40MZ,2=80MHZ)| is_6g |"
                     " RTT_Type(1=1WAY,2=2WAY,3=auto) |Peer Type(STA=0, AP=1)| Burst Period|"
                     " No of Burst| No of FTM Burst| FTM Retry Count| FTMR Retry Count| LCI| LCR|"
                     " Burst Duration| Preamble|Channel_Bandwith|"
@@ -1768,16 +1777,22 @@ static void testRTT()
                     break;
                 }
 
-                result = fscanf(fp,"%s %s %u %u %u\n",
+                result = fscanf(fp,"%s %s %u %u %u %u\n",
                         ssid, bssid, (unsigned int*)&responder_channel,
                         (unsigned int*)&channel_width,
+                        (unsigned int*)&is_6g,
                         (unsigned int*)&params[i].rtt_config.type);
-                if (result != 5) {
-                    printMsg("fscanf failed to read ssid, bssid, channel, type: %d\n", result);
+                if (result != 6) {
+                    printMsg("fscanf failed to read ssid, bssid, channel, width, is_6g, type. err: %d\n", result);
                     break;
                 }
 
-                result = fscanf(fp, "%u %u %u %u %u %u %hhu %hhu %u %hhu %u\n",
+                if (params[i].rtt_config.type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+                    printf("Unsupported rtt_type %d, exit!!\n", type);
+                    break;
+                }
+
+                result = fscanf(fp, "%u %u %u %u %u %u %hhu %hhu %u %hhu\n",
                         (unsigned int*)&params[i].rtt_config.peer,
                         &params[i].rtt_config.burst_period,
                         &params[i].rtt_config.num_burst,
@@ -1787,8 +1802,8 @@ static void testRTT()
                         (unsigned char*)&params[i].rtt_config.LCI_request,
                         (unsigned char*)&params[i].rtt_config.LCR_request,
                         (unsigned int*)&params[i].rtt_config.burst_duration,
-                        (unsigned char*)&params[i].rtt_config.preamble, &channel_width);
-                if (result != 11) {
+                        (unsigned char*)&params[i].rtt_config.preamble);
+                if (result != 10) {
                     printMsg("fscanf failed to read mc params %d\n", result);
                     break;
                 }
@@ -3856,6 +3871,9 @@ void readTestOptions(int argc, char *argv[]) {
 }
 
 void readRTTOptions(int argc, char *argv[]) {
+    char *val_p = NULL;
+    int ret;
+
     for (int j = 1; j < argc-1; j++) {
         if ((strcmp(argv[j], "-get_ch_list") == 0)) {
             if(strcmp(argv[j + 1], "a") == 0) {
@@ -3925,7 +3943,7 @@ void readRTTOptions(int argc, char *argv[]) {
             if (isxdigit(argv[j+1][0])) {
                 j++;
                 parseMacAddress(argv[j], responder_addr);
-                printMsg("Target mac(" MACSTR ")", MAC2STR(responder_addr));
+                printMsg("Target mac(" MACSTR ")" , MAC2STR(responder_addr));
             }
             /* Read channel if present */
             if (argv[j+1]) {
@@ -3934,56 +3952,57 @@ void readRTTOptions(int argc, char *argv[]) {
                     responder_channel = atoi(argv[j]);
                     printf("Channel set as %d \n", responder_channel);
                 }
-                /* Read band width if present */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        channel_width = atoi(argv[j]);
-                        printf("channel_width as %d \n", channel_width);
+            }
+            /* Read band width if present */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    channel_width = atoi(argv[j]);
+                    printf("channel_width as %d \n", channel_width);
+                }
+            }
+            /* check its 6g channel */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    if (atoi(argv[j]) == 1) {
+                        printf(" IS 6G CHANNEL \n");
+                        is_6g = true;
                     }
                 }
-                /* check its 6g channel */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        if(atoi(argv[j]) == 1) {
-                            printf(" IS 6G CHANNEL \n");
-                            is_6g = true;
-                        }
-                    }
-                }
+            }
 
-                /* Read rtt_type if present */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        type = (wifi_rtt_type)atoi(argv[j]);
-                        printf("rtt_type %d \n", type);
-                    }
+            /* Read rtt_type if present */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    type = (wifi_rtt_type)atoi(argv[j]);
+                    printf("rtt_type %d \n", type);
                 }
+            }
 
-                /* Read ntb_min_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_min_meas_time = atoi(argv[j]);
-                        printf("ntb_min_meas_time as %lu \n", ntb_min_meas_time);
-                    }
+            /* Read ntb_min_meas_time if present */
+            if ((argv[j+1]) && ((type == RTT_TYPE_2_SIDED_11AZ_NTB) ||
+                    (type == RTT_TYPE_2_SIDED_11AZ_NTB_SECURE))) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    printf("ntb_min_meas_time : %lu \n", atoi(argv[j]));
+                    ntb_min_meas_time = atoi(argv[j]);
                 }
+            }
 
-                /* Read ntb_max_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_max_meas_time = atoi(argv[j]);
-                        printf("ntb_max_meas_time as %lu \n", ntb_max_meas_time);
-                    }
+            /* Read ntb_max_meas_time if present */
+            if ((argv[j+1]) && ((type == RTT_TYPE_2_SIDED_11AZ_NTB) ||
+                    (type == RTT_TYPE_2_SIDED_11AZ_NTB_SECURE))) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    printf("ntb_max_meas_time : %lu \n", atoi(argv[j]));
+                    ntb_max_meas_time = atoi(argv[j]);
                 }
             }
         }
     }
 }
-
 void readLoggerOptions(int argc, char *argv[])
 {
     void printUsage();          // declaration for below printUsage()
@@ -5897,8 +5916,8 @@ void printUsage() {
     printf(" -enable_resp     enables the responder\n");
     printf(" -cancel_resp     cancel the responder\n");
     printf(" -get_responder_info    return the responder info\n");
-    printf(" -rtt -sta/-nan <peer mac addr> <channel> [ <bandwidth> [0 - 2]] <is_6g>"
-        "  bandwidth - 0 for 20, 1 for 40 , 2 for 80 . is_6g = 1 if channel is 6G\n");
+    printf(" -rtt -sta/-nan <peer mac addr> <channel> <bandwidth>"
+            " <is_6g> <rtt_type> <ntb_min_meas_time> <ntb_max_meas_time>\n");
     printf(" -get_capa_rtt Get the capability of RTT such as 11mc");
     printf(" -scan_mac_oui XY:AB:CD\n");
     printf(" -nodfs <0|1>     Turn OFF/ON non-DFS locales\n");
