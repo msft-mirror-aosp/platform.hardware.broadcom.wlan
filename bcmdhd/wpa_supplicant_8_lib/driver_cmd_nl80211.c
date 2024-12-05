@@ -125,12 +125,7 @@ int wpa_driver_nl80211_driver_cmd(void *priv, char *cmd, char *buf,
 			wpa_driver_send_hang_msg(drv);
 		} else {
 			drv_errors = 0;
-			ret = 0;
-			if ((os_strcasecmp(cmd, "LINKSPEED") == 0) ||
-			    (os_strcasecmp(cmd, "RSSI") == 0) ||
-			    (os_strcasecmp(cmd, "GETBAND") == 0) ||
-			    (os_strncasecmp(cmd, "WLS_BATCHING", 12) == 0))
-				ret = strlen(buf);
+			ret = strlen(buf);
 			wpa_driver_notify_country_change(drv->ctx, cmd);
 			wpa_printf(MSG_DEBUG, "%s %s len = %d, %zu", __func__, buf, ret, strlen(buf));
 		}
