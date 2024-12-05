@@ -71,7 +71,7 @@ const uint32_t BRCM_OUI =  0x001018;
  * 11ax/HE:  OFDM(12) + HE(12) x 2 nss = 36 (MCS0 ~ MCS11)
  * 11be/EHT:  OFDM(12) + EHT(16) x 2 nss = 44 (MCS0 ~ MCS15)
  */
-#define NUM_RATE                        44u
+#define MAX_NUM_RATE                        44u
 #define NUM_RATE_NON_BE                 36u
 
 #define NL_MSG_MAX_LEN                  5120u

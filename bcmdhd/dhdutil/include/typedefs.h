@@ -165,9 +165,7 @@ typedef long unsigned int size_t;
 #ifdef USE_TYPEDEF_DEFAULTS
 #undef USE_TYPEDEF_DEFAULTS
 
-#ifndef TYPEDEF_BOOL
-typedef	/* @abstract@ */ unsigned char	bool;
-#endif
+#include <stdbool.h>
 
 /* define uchar, ushort, uint, ulong */
 
