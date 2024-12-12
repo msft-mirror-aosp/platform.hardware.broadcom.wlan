@@ -87,6 +87,7 @@ const uint32_t BRCM_OUI =  0x001018;
 
 #define NAN_MAX_PAIRING_CNT             8u
 #define NAN_MAX_COOKIE_LEN              255u
+#define NAN_DEFAULT_RX_CHAINS_SUPPORTED 2u
 
 /*
  This enum defines ranges for various commands; commands themselves
