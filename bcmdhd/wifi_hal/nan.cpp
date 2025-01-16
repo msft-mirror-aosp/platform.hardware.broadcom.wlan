@@ -2784,12 +2784,24 @@ class NanDiscEnginePrimitive : public WifiCommand
         nan_hal_resp_t *rsp_vndr_data = NULL;
         NanResponseMsg rsp_data;
         hal_info *h_info = getHalInfo(mIface);
+        int vendor_data_len = 0;
+        int driver_nan_cap_len = 0;
+        int android15_nan_cap_size =
+                offsetof(NanCapabilities, is_suspension_supported) + sizeof(bool);
+        int min_nan_resp_size = offsetof(nan_hal_resp_t, capabilities);
+        int copy_data_len = 0;
 
-        if (reply.get_cmd() != NL80211_CMD_VENDOR || reply.get_vendor_data() == NULL) {
-            ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
+        if ((reply.get_cmd() != NL80211_CMD_VENDOR) || (reply.get_vendor_data() == NULL) ||
+                (reply.get_vendor_data_len() < min_nan_resp_size)) {
+            ALOGD("Ignoring reply with cmd = %d mType = %d len = %d,"
+                    "min expected len %d, supported nan capa size %d\n",
+                    reply.get_cmd(), mType, reply.get_vendor_data_len(),
+                    min_nan_resp_size, android15_nan_cap_size);
             return NL_SKIP;
         }
         rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
+        vendor_data_len = reply.get_vendor_data_len();
+
         ALOGI("NanDiscEnginePrmitive::handle response\n");
         memset(&rsp_data, 0, sizeof(NanResponseMsg));
         rsp_data.response_type = get_response_type((WIFI_SUB_COMMAND)rsp_vndr_data->subcmd);
@@ -2804,7 +2816,7 @@ class NanDiscEnginePrimitive : public WifiCommand
             rsp_data.nan_error[strlen(NanStatusToString(rsp_data.status))] = '\0';
         }
         rsp_data.nan_error[NAN_ERROR_STR_LEN - 1] = '\0';
-        ALOGI("\n Received nan_error string %s\n", (u8*)rsp_data.nan_error);
+        ALOGI("Received nan_error string %s\n", (u8*)rsp_data.nan_error);
 
         if (mInstId == 0 &&
                 (rsp_data.response_type == NAN_RESPONSE_PUBLISH ||
@@ -2818,37 +2830,24 @@ class NanDiscEnginePrimitive : public WifiCommand
         } else if (rsp_data.response_type == NAN_RESPONSE_SUBSCRIBE) {
             rsp_data.body.subscribe_response.subscribe_id = mInstId;
         } else if (rsp_data.response_type == NAN_GET_CAPABILITIES) {
-            /* avoid memcpy to keep backward compatibility */
-            NanCapabilities *desc = &rsp_data.body.nan_capabilities;
-            NanCapabilities *src = &rsp_vndr_data->capabilities;
+            NanCapabilities *dest = &rsp_data.body.nan_capabilities;
+            driver_nan_cap_len = (vendor_data_len - min_nan_resp_size);
+            copy_data_len = sizeof(NanCapabilities);
+            if (copy_data_len != driver_nan_cap_len) {
+                /* take min of driver data_nan_cap_len and android15 cap */
+                copy_data_len = min(android15_nan_cap_size, driver_nan_cap_len);
+                /* keeping framework defaults */
+                dest->is_periodic_ranging_supported = false;
+                dest->supported_bw = WIFI_RTT_BW_UNSPECIFIED;
+                dest->num_rx_chains_supported = NAN_DEFAULT_RX_CHAINS_SUPPORTED;
+            }
+            memcpy(dest, &rsp_vndr_data->capabilities, copy_data_len);
 
-            desc->max_publishes = src->max_publishes;
-            desc->max_subscribes = src->max_subscribes;
-            desc->max_ndi_interfaces = src->max_ndi_interfaces;
-            desc->max_ndp_sessions = src->max_ndp_sessions;
-            desc->max_concurrent_nan_clusters = src->max_concurrent_nan_clusters;
-            desc->max_service_name_len = src->max_service_name_len;
-            desc->max_match_filter_len = src->max_match_filter_len;
-            desc->max_total_match_filter_len = src->max_total_match_filter_len;
-            desc->max_service_specific_info_len = src->max_service_specific_info_len;
-            desc->max_app_info_len = src->max_app_info_len;
-            desc->max_sdea_service_specific_info_len = src->max_sdea_service_specific_info_len;
-            desc->max_queued_transmit_followup_msgs = src->max_queued_transmit_followup_msgs;
-            desc->max_subscribe_address = src->max_subscribe_address;
-            desc->is_ndp_security_supported = src->is_ndp_security_supported;
-            desc->ndp_supported_bands = src->ndp_supported_bands;
-            desc->cipher_suites_supported = src->cipher_suites_supported;
-            desc->is_instant_mode_supported = src->is_instant_mode_supported;
-            desc->ndpe_attr_supported = src->ndpe_attr_supported;
-            desc->is_suspension_supported = src->is_suspension_supported;
-            /* Temporarily disable NAN pairing feature capability */
-            //desc->is_pairing_supported = src->is_pairing_supported;
-            ALOGI("Capabilities pairing %u, local pairing %u csid 0x%x", desc->is_pairing_supported,
-                    src->is_pairing_supported, desc->cipher_suites_supported);
-
+            ALOGI("Capabilities pairing %u, csid 0x%x", dest->is_pairing_supported,
+                    dest->cipher_suites_supported);
             if (!get_halutil_mode()) {
-                SET_NAN_SUSPEND_CAP(h_info, desc->is_suspension_supported);
-                SET_NAN_PAIRING_CAP(h_info, desc->is_pairing_supported);
+                SET_NAN_SUSPEND_CAP(h_info, dest->is_suspension_supported);
+                SET_NAN_PAIRING_CAP(h_info, dest->is_pairing_supported);
                 ALOGI("Capabilities Cached pairing %d suspend %d\n", GET_NAN_PAIRING_CAP(h_info),
                         GET_NAN_SUSPEND_CAP(h_info));
 
@@ -3736,6 +3735,7 @@ class NanDataPathPrimitive : public WifiCommand
         nan_hal_resp_t *rsp_vndr_data = NULL;
         NanResponseMsg rsp_data;
         int32_t result = BCME_OK;
+        int min_nan_resp_size = offsetof(nan_hal_resp_t, capabilities);
 
         ALOGI("NanDataPathPrmitive::handle Response\n");
         memset(&rsp_data, 0, sizeof(NanResponseMsg));
@@ -3749,9 +3749,11 @@ class NanDataPathPrimitive : public WifiCommand
              rsp_data.status = NAN_STATUS_SUCCESS;
         } else if (reply.get_cmd() != NL80211_CMD_VENDOR ||
             reply.get_vendor_data() == NULL ||
-                    reply.get_vendor_data_len() != sizeof(nan_hal_resp_t)) {
-            ALOGD("Ignoring reply with cmd = %d mType = %d len = %d\n",
-                    reply.get_cmd(), mType, reply.get_vendor_data_len());
+                    reply.get_vendor_data_len() < min_nan_resp_size) {
+            ALOGD("Ignoring reply with cmd = %d mType = %d len = %d,"
+                    " min expected len %d, capa size %d\n",
+                    reply.get_cmd(), mType, reply.get_vendor_data_len(),
+                    min_nan_resp_size, sizeof(NanCapabilities));
             return NL_SKIP;
         } else {
             rsp_vndr_data = (nan_hal_resp_t *)reply.get_vendor_data();
@@ -4901,6 +4903,7 @@ class NanMacControl : public WifiCommand
         int len = event.get_vendor_data_len();
         u16 attr_type;
         nan_hal_resp_t *rsp_vndr_data = NULL;
+        int min_nan_resp_size = offsetof(nan_hal_resp_t, capabilities);
 
         ALOGI("%s: Received NanMacControl event = %d (len=%d)\n",
                 __func__, event.get_cmd(), len);
@@ -4919,13 +4922,13 @@ class NanMacControl : public WifiCommand
                 ndp_instance_id = it.get_u32();
                 ALOGI("handleEvent: ndp_instance_id = [%d]\n", ndp_instance_id);
             } else if (attr_type == NAN_ATTRIBUTE_CMD_RESP_DATA) {
-                ALOGI("sizeof cmd response data: %ld, it.get_len() = %d\n",
-                        sizeof(nan_hal_resp_t), it.get_len());
-                if (it.get_len() == sizeof(nan_hal_resp_t)) {
-                    rsp_vndr_data = (nan_hal_resp_t*)it.get_data();
-                } else {
-                    ALOGE("Wrong cmd response data received\n");
+                if (it.get_len() < min_nan_resp_size) {
+                    ALOGI("Skip handling cmd resp data !!"
+                        " Min expected len : %ld, it.get_len() = %d\n",
+                        min_nan_resp_size, it.get_len());
                     return NL_SKIP;
+                } else {
+                    rsp_vndr_data = (nan_hal_resp_t *)it.get_data();
                 }
             }
         }
@@ -7511,6 +7514,9 @@ wifi_error nan_data_request_initiator(transaction_id id,
         }
     } else if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
         NanDataPathSecInfoRequest msg_sec_info;
+
+        memset(&msg_sec_info, 0, sizeof(msg_sec_info));
+
         if (msg->requestor_instance_id == 0) {
             ALOGE("Invalid Pub ID = %d, Mandatory param is missing\n", msg->requestor_instance_id);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -7519,7 +7525,7 @@ wifi_error nan_data_request_initiator(transaction_id id,
             ALOGI("Pub ID = %d, Mandatory param is present\n", msg->requestor_instance_id);
         }
         if (ETHER_ISNULLADDR(msg->peer_disc_mac_addr)) {
-            ALOGE("Invalid Pub NMI, Mandatory param is missing\n");
+            ALOGE("NDP Init: Invalid Pub NMI, Mandatory param is missing\n");
             ret = WIFI_ERROR_INVALID_ARGS;
             goto done;
         }
@@ -7602,6 +7608,8 @@ wifi_error nan_data_indication_response(transaction_id id,
     if (msg->key_info.key_type == NAN_SECURITY_KEY_INPUT_PASSPHRASE) {
         NanDataPathSecInfoRequest msg_sec_info;
 
+        memset(&msg_sec_info, 0, sizeof(msg_sec_info));
+
         if (msg->ndp_instance_id == 0) {
             ALOGE("Invalid NDP ID, Mandatory info is not present\n");
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -7622,7 +7630,7 @@ wifi_error nan_data_indication_response(transaction_id id,
         }
 
         if (ETHER_ISNULLADDR(cmd->mPubNmi)) {
-            ALOGE("Invalid Pub NMI\n");
+            ALOGE("NDP resp: Invalid Pub NMI\n");
             ret = WIFI_ERROR_INVALID_ARGS;
             goto done;
         }
