@@ -74,7 +74,7 @@ wifi_error  nan_event_check_request(transaction_id id,
         wifi_interface_handle handle);
 
 /* API to spawn a hal instance from halutil CLI to capture events */
-wifi_error twt_event_check_request(transaction_id id,
+wifi_error twt_event_check_request(int id,
         wifi_interface_handle handle);
 static int set_interface_params(char *p_info, char *val_p, int len);
 static wifi_interface_handle wifi_get_iface_handle_by_iface_name(char *val_p);
@@ -963,7 +963,6 @@ static int rttCmdId;
 static int epnoCmdId;
 static int loggerCmdId;
 static u16 nanCmdId;
-static u16 twtCmdId;
 static wifi_error twt_init_handlers(void);
 
 static bool startScan(int max_ap_per_scan, int base_period, int threshold_percent,
@@ -1576,7 +1575,7 @@ static void testRTT()
                 return;
             }
             fprintf(w_fp, "|SSID|BSSID|Primary Freq|Center Freq|Channel BW(0=20MHZ,1=40MZ,2=80MHZ)\n"
-                    "|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|\n"
+                    "is_6g|rtt_type(1=1WAY,2=2WAY,3=auto)|Peer Type(STA=0, AP=1)|burst period|\n"
                     "Num of Burst|FTM retry count|FTMR retry count|LCI|LCR|\n"
                     "Burst Duration|Preamble|BW||NTB Min Meas Time in units of 100us|\n"
                     "NTB Max Meas Time in units of 10ms\n");
@@ -1592,6 +1591,11 @@ static void testRTT()
                         scan_param->ssid, addr[0], addr[1],
                         addr[2], addr[3], addr[4], addr[5],
                         scan_param->channel, RttTypeToString(type));
+
+                if (type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+                    printf("Unsupported rtt_type %d, exit!!\n", type);
+                    return;
+                }
                 params[num_ap].rtt_config.type = type;
                 params[num_ap].rtt_config.channel = get_channel_of_ie(&scan_param->ie_data[0],
                         scan_param->ie_length);
@@ -1686,6 +1690,10 @@ static void testRTT()
                 MAC2STR(responder_addr),
                 params[num_sta].rtt_config.channel.center_freq,
                 RttTypeToString(type));
+        if (type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+             printf("Unsupported rtt_type %d, exit!!\n", type);
+             return;
+        }
         /*As we are doing STA-STA RTT */
         params[num_sta].rtt_config.type = type;
         if (rtt_nan) {
@@ -1750,7 +1758,7 @@ static void testRTT()
             printMsg("\nRTT AP list file does not exist on %s.\n"
                     "Please specify correct full path or use default one, %s, \n"
                     "  by following order in file, such as:\n"
-                    "SSID | BSSID | chan_num |Channel BW(0=20MHZ,1=40MZ,2=80MHZ)|"
+                    "SSID | BSSID | chan_num | Channel BW(0=20MHZ,1=40MZ,2=80MHZ)| is_6g |"
                     " RTT_Type(1=1WAY,2=2WAY,3=auto) |Peer Type(STA=0, AP=1)| Burst Period|"
                     " No of Burst| No of FTM Burst| FTM Retry Count| FTMR Retry Count| LCI| LCR|"
                     " Burst Duration| Preamble|Channel_Bandwith|"
@@ -1768,16 +1776,22 @@ static void testRTT()
                     break;
                 }
 
-                result = fscanf(fp,"%s %s %u %u %u\n",
+                result = fscanf(fp,"%s %s %u %u %u %u\n",
                         ssid, bssid, (unsigned int*)&responder_channel,
                         (unsigned int*)&channel_width,
+                        (unsigned int*)&is_6g,
                         (unsigned int*)&params[i].rtt_config.type);
-                if (result != 5) {
-                    printMsg("fscanf failed to read ssid, bssid, channel, type: %d\n", result);
+                if (result != 6) {
+                    printMsg("fscanf failed to read ssid, bssid, channel, width, is_6g, type. err: %d\n", result);
                     break;
                 }
 
-                result = fscanf(fp, "%u %u %u %u %u %u %hhu %hhu %u %hhu %u\n",
+                if (params[i].rtt_config.type > RTT_TYPE_2_SIDED_11AZ_NTB) {
+                    printf("Unsupported rtt_type %d, exit!!\n", type);
+                    break;
+                }
+
+                result = fscanf(fp, "%u %u %u %u %u %u %hhu %hhu %u %hhu\n",
                         (unsigned int*)&params[i].rtt_config.peer,
                         &params[i].rtt_config.burst_period,
                         &params[i].rtt_config.num_burst,
@@ -1787,8 +1801,8 @@ static void testRTT()
                         (unsigned char*)&params[i].rtt_config.LCI_request,
                         (unsigned char*)&params[i].rtt_config.LCR_request,
                         (unsigned int*)&params[i].rtt_config.burst_duration,
-                        (unsigned char*)&params[i].rtt_config.preamble, &channel_width);
-                if (result != 11) {
+                        (unsigned char*)&params[i].rtt_config.preamble);
+                if (result != 10) {
                     printMsg("fscanf failed to read mc params %d\n", result);
                     break;
                 }
@@ -1971,8 +1985,9 @@ static void getRTTCapability()
 }
 
 /* TWT related apis */
-static void setupTwtRequest(char *argv[]) {
-    TwtSetupRequest msg;
+static void setupTwtSession(char *argv[]) {
+    wifi_twt_request msg;
+    wifi_request_id id = 0;
     wifi_error ret = WIFI_SUCCESS;
     char *endptr, *param, *val_p;
 
@@ -1996,30 +2011,16 @@ static void setupTwtRequest(char *argv[]) {
         }
         if (strcmp(param, "-iface") == 0) {
             ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
-            msg.config_id = atoi(val_p);
-        } else if (strcmp(param, "-neg_type") == 0) {
-            msg.negotiation_type = atoi(val_p);
-        } else if (strcmp(param, "-trigger_type") == 0) {
-            msg.trigger_type = atoi(val_p);
-        } else if (strcmp(param, "-wake_dur_us") == 0) {
-            msg.wake_dur_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_int_us") == 0) {
-            msg.wake_int_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_int_min_us") == 0) {
-            msg.wake_int_min_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_int_max_us") == 0) {
-            msg.wake_int_max_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_dur_min_us") == 0) {
-            msg.wake_dur_min_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_dur_max_us") == 0) {
-            msg.wake_dur_max_us = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-avg_pkt_size") == 0) {
-            msg.avg_pkt_size = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-avg_pkt_num") == 0) {
-            msg.avg_pkt_num = strtoul(val_p, &endptr, 0);
-        } else if (strcmp(param, "-wake_time_off_us") == 0) {
-            msg.wake_time_off_us = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-mlo_link_id") == 0) {
+            msg.mlo_link_id = atoi(val_p);
+        } else if (strcmp(param, "-min_wake_dur_us") == 0) {
+            msg.min_wake_duration_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-max_wake_dur_us") == 0) {
+            msg.max_wake_duration_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-min_wake_inter_us") == 0) {
+            msg.min_wake_interval_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-max_wake_inter_us") == 0) {
+            msg.max_wake_interval_micros = strtoul(val_p, &endptr, 0);
         } else {
             printMsg("%s:Unsupported Parameter for twt setup request\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -2034,23 +2035,27 @@ static void setupTwtRequest(char *argv[]) {
 
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize twt handlers %d\n", ret);
+        printMsg("Failed to initialize twt events %d\n", ret);
         goto exit;
     }
 
-    ret = twt_setup_request(ifHandle, &msg);
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_setup(id, ifHandle, msg);
 
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
 }
 
-static void TeardownTwt(char *argv[]) {
-    TwtTeardownRequest msg;
+static void UpdateTwtSession(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
-    char *param, *val_p;
+    wifi_twt_request msg;
+    wifi_request_id id = 0;
+    int session_id = 0;
+    char *param, *val_p, *endptr;
 
-    /* Set Default twt teardown params */
+    /* Set Default twt update request params */
     memset(&msg, 0, sizeof(msg));
 
     /* Parse args for twt params */
@@ -2070,12 +2075,174 @@ static void TeardownTwt(char *argv[]) {
         }
         if (strcmp(param, "-iface") == 0) {
             ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
-            msg.config_id = atoi(val_p);
-        } else if (strcmp(param, "-all_twt") == 0) {
-            msg.all_twt = atoi(val_p);
-        } else if (strcmp(param, "-neg_type") == 0) {
-            msg.negotiation_type = atoi(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
+        } else if (strcmp(param, "-mlo_link_id") == 0) {
+            msg.mlo_link_id = atoi(val_p);
+        } else if (strcmp(param, "-min_wake_dur_us") == 0) {
+            msg.min_wake_duration_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-max_wake_dur_us") == 0) {
+            msg.max_wake_duration_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-min_wake_inter_us") == 0) {
+            msg.min_wake_interval_micros = strtoul(val_p, &endptr, 0);
+        } else if (strcmp(param, "-max_wake_inter_us") == 0) {
+            msg.max_wake_interval_micros = strtoul(val_p, &endptr, 0);
+        } else {
+            printMsg("%s:Unsupported Parameter for update twt session request\n", __FUNCTION__);
+            ret = WIFI_ERROR_INVALID_ARGS;
+            goto exit;
+        }
+    }
+
+    if (ifHandle == NULL) {
+        printMsg("-iface <> is mandatory\n");
+        goto exit;
+    }
+
+    ret = twt_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize twt events %d\n", ret);
+        goto exit;
+    }
+
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_update(id, ifHandle, session_id, msg);
+
+exit:
+    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
+    return;
+}
+
+static void SuspendTwtSession(char *argv[]) {
+    wifi_error ret = WIFI_SUCCESS;
+    wifi_request_id id = 0;
+    int session_id = 0;
+    char *param, *val_p;
+
+    /* Parse args for twt params */
+    /* skip utility */
+    argv++;
+    /* skip command */
+    argv++;
+    /* skip command */
+    argv++;
+
+    while ((param = *argv++) != NULL) {
+        val_p = *argv++;
+        if (!val_p || *val_p == '-') {
+            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
+            ret = WIFI_ERROR_NOT_SUPPORTED;
+            goto exit;
+        }
+        if (strcmp(param, "-iface") == 0) {
+            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
+        } else {
+            printMsg("%s:Unsupported Parameter for suspend twt session request\n", __FUNCTION__);
+            ret = WIFI_ERROR_INVALID_ARGS;
+            goto exit;
+        }
+    }
+
+    if (ifHandle == NULL) {
+        printMsg("-iface <> is mandatory\n");
+        goto exit;
+    }
+
+    ret = twt_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize twt events %d\n", ret);
+        goto exit;
+    }
+
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_suspend(id, ifHandle, session_id);
+
+exit:
+    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
+    return;
+}
+
+static void ResumeTwtSession(char *argv[]) {
+    wifi_error ret = WIFI_SUCCESS;
+    wifi_request_id id = 0;
+    int session_id = 0;
+    char *param, *val_p;
+
+    /* Parse args for twt params */
+    /* skip utility */
+    argv++;
+    /* skip command */
+    argv++;
+    /* skip command */
+    argv++;
+
+    while ((param = *argv++) != NULL) {
+        val_p = *argv++;
+        if (!val_p || *val_p == '-') {
+            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
+            ret = WIFI_ERROR_NOT_SUPPORTED;
+            goto exit;
+        }
+        if (strcmp(param, "-iface") == 0) {
+            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
+        } else {
+            printMsg("%s:Unsupported Parameter for resume twt session request\n", __FUNCTION__);
+            ret = WIFI_ERROR_INVALID_ARGS;
+            goto exit;
+        }
+    }
+
+    if (ifHandle == NULL) {
+        printMsg("-iface <> is mandatory\n");
+        goto exit;
+    }
+
+    ret = twt_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize twt events %d\n", ret);
+        goto exit;
+    }
+
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_resume(id, ifHandle, session_id);
+
+exit:
+    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
+    return;
+}
+
+static void TeardownTwtSession(char *argv[]) {
+    wifi_error ret = WIFI_SUCCESS;
+    wifi_request_id id = 0;
+    int session_id = 0;
+    char *param, *val_p;
+
+    /* Parse args for twt params */
+    /* skip utility */
+    argv++;
+    /* skip command */
+    argv++;
+    /* skip command */
+    argv++;
+
+    while ((param = *argv++) != NULL) {
+        val_p = *argv++;
+        if (!val_p || *val_p == '-') {
+            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
+            ret = WIFI_ERROR_NOT_SUPPORTED;
+            goto exit;
+        }
+        if (strcmp(param, "-iface") == 0) {
+            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for twt teardown request\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -2090,67 +2257,13 @@ static void TeardownTwt(char *argv[]) {
 
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize twt handlers %d\n", ret);
+        printMsg("Failed to initialize twt event %d\n", ret);
         goto exit;
     }
 
-    ret = twt_teardown_request(ifHandle, &msg);
+    id = getNewCmdId();
 
-exit:
-    printMsg("%s:ret = %d\n", __FUNCTION__, ret);
-    return;
-}
-
-static void InfoFrameTwt(char *argv[]) {
-    TwtInfoFrameRequest msg;
-    wifi_error ret = WIFI_SUCCESS;
-    char *param, *val_p;
-
-    /* Set Default twt info frame params */
-    memset(&msg, 0, sizeof(msg));
-
-    /* Parse args for twt params */
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
-    /* skip command */
-    argv++;
-
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
-            msg.config_id = atoi(val_p);
-        } else if (strcmp(param, "-all_twt") == 0) {
-            msg.all_twt = atoi(val_p);
-        } else if (strcmp(param, "-resume_time_us") == 0) {
-            msg.resume_time_us = atoi(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for twt info request\n", __FUNCTION__);
-            ret = WIFI_ERROR_INVALID_ARGS;
-            goto exit;
-        }
-    }
-
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
-    ret = twt_init_handlers();
-    if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize twt handlers %d\n", ret);
-        goto exit;
-    }
-
-    ret = twt_info_frame_request(ifHandle, &msg);
+    ret = hal_fn.wifi_twt_session_teardown(id, ifHandle, session_id);
 
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
@@ -2160,8 +2273,8 @@ exit:
 static void GetTwtStats(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param, *val_p;
-    u8 config_id = 1;
-    TwtStats twt_stats;
+    wifi_request_id id = 0;
+    u8 session_id = 0;
 
     /* Parse args for twt params */
     /* skip utility */
@@ -2180,8 +2293,8 @@ static void GetTwtStats(char *argv[]) {
         }
         if (strcmp(param, "-iface") == 0) {
             ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
-            config_id = atoi(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
         } else {
             printMsg("%s:Unsupported Parameter for get stats request\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
@@ -2194,38 +2307,29 @@ static void GetTwtStats(char *argv[]) {
         goto exit;
     }
 
-    memset(&twt_stats, 0, sizeof(twt_stats));
-
-    ret = twt_get_stats(ifHandle, config_id, &twt_stats);
-
-    if (ret == WIFI_SUCCESS) {
-        printMsg("TWT stats :\n");
-        if (twt_stats.config_id)
-            printMsg("config id = %d\n", twt_stats.config_id);
-        if (twt_stats.avg_pkt_num_tx)
-            printMsg("avg_pkt_num_tx = %d\n", twt_stats.avg_pkt_num_tx);
-        if (twt_stats.avg_pkt_num_rx)
-            printMsg("avg_pkt_num_rx = %d\n", twt_stats.avg_pkt_num_rx);
-        if (twt_stats.avg_tx_pkt_size)
-            printMsg("avg_tx_pkt_size = %d\n", twt_stats.avg_tx_pkt_size);
-        if (twt_stats.avg_rx_pkt_size)
-            printMsg("avg_rx_pkt_size = %d\n", twt_stats.avg_rx_pkt_size);
-        if (twt_stats.avg_eosp_dur_us)
-            printMsg("avg_eosp_dur_us = %d\n", twt_stats.avg_eosp_dur_us);
-        if (twt_stats.eosp_count)
-            printMsg("eosp_count = %d\n", twt_stats.eosp_count);
-
-        return;
+    ret = twt_init_handlers();
+    if (ret != WIFI_SUCCESS) {
+        printMsg("Failed to initialize twt event %d\n", ret);
+        goto exit;
     }
+
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_get_stats(id, ifHandle, session_id);
+
 exit:
-    printMsg("Could not get the twt stats : err %d\n", ret);
+    printMsg("%s: ret = %d\n", __FUNCTION__, ret);
     return;
 }
 
-void ClearTwtStats(char *argv[]) {
+#ifdef NOT_YET
+static void ClearTwtStats(char *argv[]) {
     wifi_error ret = WIFI_SUCCESS;
     char *param, *val_p;
-    u8 config_id = 1;
+    /* Interface name */
+    wifi_interface_handle ifHandle = NULL;
+    wifi_request_id id = 0;
+    u8 session_id = 0;
 
     /* Parse args for twt params */
     /* skip utility */
@@ -2238,16 +2342,16 @@ void ClearTwtStats(char *argv[]) {
     while ((param = *argv++) != NULL) {
         val_p = *argv++;
         if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
+            printMsg("%s:Need value following %s\n", __FUNCTION__, param);
             ret = WIFI_ERROR_NOT_SUPPORTED;
             goto exit;
         }
         if (strcmp(param, "-iface") == 0) {
             ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else if (strcmp(param, "-config_id") == 0) {
-            config_id = atoi(val_p);
+        } else if (strcmp(param, "-session_id") == 0) {
+            session_id = atoi(val_p);
         } else {
-            printMsg("%s:Unsupported Parameter for twt info request\n", __FUNCTION__);
+            printMsg("%s:Unsupported Parameter for get stats request\n", __FUNCTION__);
             ret = WIFI_ERROR_INVALID_ARGS;
             goto exit;
         }
@@ -2260,71 +2364,51 @@ void ClearTwtStats(char *argv[]) {
 
     ret = twt_init_handlers();
     if (ret != WIFI_SUCCESS) {
-        printMsg("Failed to initialize twt handlers %d\n", ret);
+        printMsg("Failed to initialize twt event %d\n", ret);
         goto exit;
     }
-    ret = twt_clear_stats(ifHandle, config_id);
+
+    id = getNewCmdId();
+
+    ret = hal_fn.wifi_twt_session_clear_stats(id, ifHandle, session_id);
 
 exit:
     printMsg("%s:ret = %d\n", __FUNCTION__, ret);
     return;
 }
+#endif /* NOT_YET */
 
-static void getTWTCapability(char *argv[]) {
+static void getTWTCapability() {
     wifi_error ret = WIFI_SUCCESS;
-    char *param, *val_p;
 
-    /* skip utility */
-    argv++;
-    /* skip command */
-    argv++;
+    wifi_twt_capabilities twt_capability;
 
-    while ((param = *argv++) != NULL) {
-        val_p = *argv++;
-        if (!val_p || *val_p == '-') {
-            printMsg("%s: Need value following %s\n", __FUNCTION__, param);
-            ret = WIFI_ERROR_NOT_SUPPORTED;
-            goto exit;
-        }
-        if (strcmp(param, "-iface") == 0) {
-            ifHandle = wifi_get_iface_handle_by_iface_name(val_p);
-        } else {
-            printMsg("%s:Unsupported Parameter for twt capability request\n", __FUNCTION__);
-            ret = WIFI_ERROR_INVALID_ARGS;
-            goto exit;
-        }
-    }
-
-    if (ifHandle == NULL) {
-        printMsg("-iface <> is mandatory\n");
-        goto exit;
-    }
-
-    TwtCapabilitySet twt_capability;
-
-    ret = twt_get_capability(ifHandle, &twt_capability);
+    ret = hal_fn.wifi_twt_get_capabilities(wlan0Handle, &twt_capability);
     if (ret == WIFI_SUCCESS) {
         printMsg("Supported Capabilites of TWT :\n");
-        if (twt_capability.device_capability.requester_supported)
-            printMsg("Device Requester supported\n");
-        if (twt_capability.device_capability.responder_supported)
-            printMsg("Device Responder supported\n");
-        if (twt_capability.device_capability.broadcast_twt_supported)
-            printMsg("Device Broadcast twt supported\n");
-        if (twt_capability.device_capability.flexibile_twt_supported)
-            printMsg("Device Flexibile twt supported\n");
-        if (twt_capability.peer_capability.requester_supported)
-            printMsg("Peer Requester supported\n");
-        if (twt_capability.peer_capability.responder_supported)
-            printMsg("Peer Responder supported\n");
-        if (twt_capability.peer_capability.broadcast_twt_supported)
-            printMsg("Peer Broadcast twt supported\n");
-        if (twt_capability.peer_capability.flexibile_twt_supported)
-            printMsg("Peer Flexibile twt supported\n");
+        if (twt_capability.is_twt_requester_supported)
+            printMsg("Twt Requester supported\n");
+        if (twt_capability.is_twt_responder_supported)
+            printMsg("Twt Responder supported\n");
+        if (twt_capability.is_broadcast_twt_supported)
+            printMsg("Broadcast twt supported\n");
+        if (twt_capability.is_flexible_twt_supported)
+            printMsg("Flexibile twt supported\n");
+        if (twt_capability.min_wake_duration_micros)
+            printMsg("Min wake duration %d microseconds\n",
+                    twt_capability.min_wake_duration_micros);
+        if (twt_capability.max_wake_duration_micros)
+            printMsg("Max wake duration %d microseconds\n",
+                    twt_capability.max_wake_duration_micros);
+        if (twt_capability.min_wake_interval_micros)
+            printMsg("Min wake interval %d microseconds\n",
+                    twt_capability.min_wake_interval_micros);
+        if (twt_capability.max_wake_interval_micros)
+            printMsg("Max wake interval %d microseconds\n",
+                    twt_capability.max_wake_interval_micros);
     } else {
         printMsg("Could not get the twt capabilities : %d\n", ret);
     }
-exit:
     return;
 }
 
@@ -3856,6 +3940,9 @@ void readTestOptions(int argc, char *argv[]) {
 }
 
 void readRTTOptions(int argc, char *argv[]) {
+    char *val_p = NULL;
+    int ret;
+
     for (int j = 1; j < argc-1; j++) {
         if ((strcmp(argv[j], "-get_ch_list") == 0)) {
             if(strcmp(argv[j + 1], "a") == 0) {
@@ -3925,7 +4012,7 @@ void readRTTOptions(int argc, char *argv[]) {
             if (isxdigit(argv[j+1][0])) {
                 j++;
                 parseMacAddress(argv[j], responder_addr);
-                printMsg("Target mac(" MACSTR ")", MAC2STR(responder_addr));
+                printMsg("Target mac(" MACSTR ")" , MAC2STR(responder_addr));
             }
             /* Read channel if present */
             if (argv[j+1]) {
@@ -3934,56 +4021,57 @@ void readRTTOptions(int argc, char *argv[]) {
                     responder_channel = atoi(argv[j]);
                     printf("Channel set as %d \n", responder_channel);
                 }
-                /* Read band width if present */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        channel_width = atoi(argv[j]);
-                        printf("channel_width as %d \n", channel_width);
+            }
+            /* Read band width if present */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    channel_width = atoi(argv[j]);
+                    printf("channel_width as %d \n", channel_width);
+                }
+            }
+            /* check its 6g channel */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    if (atoi(argv[j]) == 1) {
+                        printf(" IS 6G CHANNEL \n");
+                        is_6g = true;
                     }
                 }
-                /* check its 6g channel */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        if(atoi(argv[j]) == 1) {
-                            printf(" IS 6G CHANNEL \n");
-                            is_6g = true;
-                        }
-                    }
-                }
+            }
 
-                /* Read rtt_type if present */
-                if (argv[j+1]) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        type = (wifi_rtt_type)atoi(argv[j]);
-                        printf("rtt_type %d \n", type);
-                    }
+            /* Read rtt_type if present */
+            if (argv[j+1]) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    type = (wifi_rtt_type)atoi(argv[j]);
+                    printf("rtt_type %d \n", type);
                 }
+            }
 
-                /* Read ntb_min_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_min_meas_time = atoi(argv[j]);
-                        printf("ntb_min_meas_time as %lu \n", ntb_min_meas_time);
-                    }
+            /* Read ntb_min_meas_time if present */
+            if ((argv[j+1]) && ((type == RTT_TYPE_2_SIDED_11AZ_NTB) ||
+                    (type == RTT_TYPE_2_SIDED_11AZ_NTB_SECURE))) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    printf("ntb_min_meas_time : %lu \n", atoi(argv[j]));
+                    ntb_min_meas_time = atoi(argv[j]);
                 }
+            }
 
-                /* Read ntb_max_meas_time if present */
-                if (argv[j+1] && (type == RTT_TYPE_2_SIDED_11AZ_NTB)) {
-                    if (isdigit(argv[j+1][0])) {
-                        j++;
-                        ntb_max_meas_time = atoi(argv[j]);
-                        printf("ntb_max_meas_time as %lu \n", ntb_max_meas_time);
-                    }
+            /* Read ntb_max_meas_time if present */
+            if ((argv[j+1]) && ((type == RTT_TYPE_2_SIDED_11AZ_NTB) ||
+                    (type == RTT_TYPE_2_SIDED_11AZ_NTB_SECURE))) {
+                if (isdigit(argv[j+1][0])) {
+                    j++;
+                    printf("ntb_max_meas_time : %lu \n", atoi(argv[j]));
+                    ntb_max_meas_time = atoi(argv[j]);
                 }
             }
         }
     }
 }
-
 void readLoggerOptions(int argc, char *argv[])
 {
     void printUsage();          // declaration for below printUsage()
@@ -5539,17 +5627,18 @@ static void printApfUsage() {
 
 static void printTwtUsage() {
     printf("Usage: halutil [OPTION]\n");
-    printf("halutil -twt -setup -iface <> -config_id <> -neg_type <0 for individual TWT, 1 for broadcast TWT> "
-            "-trigger_type <0 for non-triggered TWT, 1 for triggered TWT> "
-            "-wake_dur_us <> -wake_int_us <> -wake_int_min_us <> "
-            "-wake_int_max_us <> -wake_dur_min_us <> -wake_dur_max_us <> "
-            "-avg_pkt_size <> -avg_pkt_num <> -wake_time_off_us <>\n");
-    printf("halutil -twt -info_frame -iface <> -config_id <>"
-            " -all_twt <0 for individual setp request, 1 for all TWT> -resume_time_us <>\n");
-    printf("halutil -twt -teardown -iface <> -config_id <> -all_twt <> "
-            " -neg_type <0 for individual TWT, 1 for broadcast TWT>\n");
-    printf("halutil -twt -get_stats -iface <> -config_id <>\n");
-    printf("halutil -twt -clear_stats -iface <> -config_id <>\n");
+    printf("halutil -twt -setup -iface <> -mlo_link_id <> -min_wake_dur_us <>\n"
+            " -max_wake_dur_us <> -min_wake_inter_us <> -max_wake_inter_us <>\n");
+    printf("halutil -twt -update -iface <> -session_id <> -mlo_link_id <> \n"
+            "-min_wake_dur_us <> -max_wake_dur_us <> -min_wake_inter_us <>\n"
+            " -max_wake_inter_us <>\n");
+    printf("halutil -twt -teardown -iface <> -session_id <>\n");
+    printf("halutil -twt -suspend -iface <> -session_id <>\n");
+    printf("halutil -twt -resume -iface <> -session_id <>\n");
+    printf("halutil -twt -get_stats -iface <> -session_id <>\n");
+#ifdef NOT_YET
+    printf("halutil -twt -clear_stats -iface <> -session_id <>\n");
+#endif /* NOT_YET */
     printf("halutil -get_capa_twt -iface <>\n");
     printf("halutil -twt -event_chk\n");
     return;
@@ -5897,8 +5986,8 @@ void printUsage() {
     printf(" -enable_resp     enables the responder\n");
     printf(" -cancel_resp     cancel the responder\n");
     printf(" -get_responder_info    return the responder info\n");
-    printf(" -rtt -sta/-nan <peer mac addr> <channel> [ <bandwidth> [0 - 2]] <is_6g>"
-        "  bandwidth - 0 for 20, 1 for 40 , 2 for 80 . is_6g = 1 if channel is 6G\n");
+    printf(" -rtt -sta/-nan <peer mac addr> <channel> <bandwidth>"
+            " <is_6g> <rtt_type> <ntb_min_meas_time> <ntb_max_meas_time>\n");
     printf(" -get_capa_rtt Get the capability of RTT such as 11mc");
     printf(" -scan_mac_oui XY:AB:CD\n");
     printf(" -nodfs <0|1>     Turn OFF/ON non-DFS locales\n");
@@ -6516,61 +6605,127 @@ wifi_error nan_init_handlers(void) {
     return ret;
 }
 
-static void OnTwtNotify(TwtDeviceNotify* event) {
-    if (event) {
-        printMsg("OnTwtNotify, notification = %d\n", event->notification);
+static const char *TwtReasonCodeToString(wifi_twt_teardown_reason_code reason_code)
+{
+    switch (reason_code) {
+        C2S(WIFI_TWT_TEARDOWN_REASON_CODE_UNKNOWN)
+        C2S(WIFI_TWT_TEARDOWN_REASON_CODE_LOCALLY_REQUESTED)
+        C2S(WIFI_TWT_TEARDOWN_REASON_CODE_INTERNALLY_INITIATED)
+        C2S(WIFI_TWT_TEARDOWN_REASON_CODE_PEER_INITIATED)
+    default:
+        return "TWT_REASON_CODE_UNKNOWN";
     }
+}
+
+static const char *TwtErrorCodeToString(wifi_twt_error_code error_code)
+{
+    switch (error_code) {
+        C2S(WIFI_TWT_ERROR_CODE_FAILURE_UNKNOWN)
+        C2S(WIFI_TWT_ERROR_CODE_ALREADY_RESUMED)
+        C2S(WIFI_TWT_ERROR_CODE_ALREADY_SUSPENDED)
+        C2S(WIFI_TWT_ERROR_CODE_INVALID_PARAMS)
+        C2S(WIFI_TWT_ERROR_CODE_MAX_SESSION_REACHED)
+        C2S(WIFI_TWT_ERROR_CODE_NOT_AVAILABLE)
+        C2S(WIFI_TWT_ERROR_CODE_NOT_SUPPORTED)
+        C2S(WIFI_TWT_ERROR_CODE_PEER_NOT_SUPPORTED)
+        C2S(WIFI_TWT_ERROR_CODE_PEER_REJECTED)
+        C2S(WIFI_TWT_ERROR_CODE_TIMEOUT)
+    default:
+        return "TWT_ERROR_CODE_UNKNOWN";
+    }
+}
+
+static void OnTwtSessionFailure(wifi_request_id id, wifi_twt_error_code error_code) {
+    printMsg("OnTwtSessionFailure:\n");
+    printMsg("Error_code %s (%d)\n",
+            TwtErrorCodeToString(error_code), error_code);
     return;
 }
 
-static void OnTwtSetupResponse(TwtSetupResponse* event) {
-    printMsg("\n OnTwtSetupResponse\n");
-    if (event) {
-        printMsg("config id = %d\n", event->config_id);
-        printMsg("status = %d\n", event->status);
-        printMsg("reason_code = %d\n", event->reason_code);
-        printMsg("negotiation_type = %d\n", event->negotiation_type);
-        printMsg("trigger_type = %d\n", event->trigger_type);
-        printMsg("wake_dur_us = %d\n", event->wake_dur_us);
-        printMsg("wake_int_us = %d\n", event->wake_int_us);
-        printMsg("wake_time_off_us = %d\n", event->wake_time_off_us);
-    }
+static void OnTwtSessionCreate(wifi_request_id id, wifi_twt_session session) {
+    printMsg("OnTwtSessionCreate:\n");
+    printMsg("Session data\n");
+    printMsg("session_id: %d\n", session.session_id);
+    printMsg("mlo_link_id: %d\n", session.mlo_link_id);
+    printMsg("wake_duration_micros: %d\n", session.wake_duration_micros);
+    printMsg("wake_interval_micros: %d\n", session.wake_interval_micros);
+    printMsg("negotiation_type: %d\n", session.negotiation_type);
+    printMsg("is_trigger_enabled: %d\n", session.is_trigger_enabled);
+    printMsg("is_announced: %d\n", session.is_announced);
+    printMsg("is_implicit: %d\n", session.is_implicit);
+    printMsg("is_protected: %d\n", session.is_protected);
+    printMsg("is_updatable: %d\n", session.is_updatable);
+    printMsg("is_suspendable: %d\n", session.is_suspendable);
+    printMsg("is_responder_pm_mode_enabled: %d\n", session.is_responder_pm_mode_enabled);
     return;
 }
 
-static void OnTwtTearDownCompletion(TwtTeardownCompletion* event) {
-    printMsg("\n OnTwtTearDownCompletion\n");
-    if (event) {
-        printMsg("config id = %d\n", event->config_id);
-        printMsg("status = %d\n", event->status);
-        printMsg("all twt = %d\n", event->all_twt);
-        printMsg("reason = %d\n", event->reason);
-    }
+static void OnTwtSessionUpdate(wifi_request_id id, wifi_twt_session session) {
+    printMsg("OnTwtSessionUpdate:\n");
+    printMsg("Session data\n");
+    printMsg("session_id: %d\n", session.session_id);
+    printMsg("mlo_link_id: %d\n", session.mlo_link_id);
+    printMsg("wake_duration_micros: %d\n", session.wake_duration_micros);
+    printMsg("wake_interval_micros: %d\n", session.wake_interval_micros);
+    printMsg("negotiation_type: %d\n", session.negotiation_type);
+    printMsg("is_trigger_enabled: %d\n", session.is_trigger_enabled);
+    printMsg("is_announced: %d\n", session.is_announced);
+    printMsg("is_implicit: %d\n", session.is_implicit);
+    printMsg("is_protected: %d\n", session.is_protected);
+    printMsg("is_updatable: %d\n", session.is_updatable);
+    printMsg("is_suspendable: %d\n", session.is_suspendable);
+    printMsg("is_responder_pm_mode_enabled: %d\n", session.is_responder_pm_mode_enabled);
     return;
 }
 
-static void OnTwtInfoFrameReceived(TwtInfoFrameReceived* event) {
-    printMsg("\n OnTwtInfoFrameReceived\n");
-    if (event) {
-        printMsg("config id = %d\n", event->config_id);
-        printMsg("status = %d\n", event->status);
-        printMsg("all twt = %d\n", event->all_twt);
-        printMsg("reason = %d\n", event->reason);
-        printMsg("twt_resumed = %d\n", event->twt_resumed);
-    }
+static void OnTwtSessionTearDown(wifi_request_id id, int session_id,
+        wifi_twt_teardown_reason_code reason) {
+    printMsg("OnTwtSessionTearDown:\n");
+    printMsg("Session id: %d\n", session_id);
+    printMsg("Reason:%s (%d)\n", TwtReasonCodeToString(reason), reason);
     return;
 }
 
-wifi_error twt_init_handlers(void) {
+static void OnTwtSessionStats(wifi_request_id id, int session_id,
+        wifi_twt_session_stats stats) {
+    printMsg("OnTwtSessionStats:\n");
+    printMsg("Session id: %d\n", session_id);
+    printMsg("avg_pkt_num_tx: %d\n", stats.avg_pkt_num_tx);
+    printMsg("avg_pkt_num_rx: %d\n", stats.avg_pkt_num_rx);
+    printMsg("avg_tx_pkt_size: %d\n", stats.avg_tx_pkt_size);
+    printMsg("avg_rx_pkt_size: %d\n", stats.avg_rx_pkt_size);
+    printMsg("avg_eosp_dur_us: %d\n", stats.avg_eosp_dur_us);
+    printMsg("eosp_count: %d\n", stats.eosp_count);
+    return;
+}
+
+static void OnTwtSessionSuspend(wifi_request_id id, int session_id) {
+    printMsg("OnTwtSessionSuspend:\n");
+    printMsg("Session id: %d\n", session_id);
+    return;
+}
+
+static void OnTwtSessionResume(wifi_request_id id, int session_id) {
+    printMsg("OnTwtSessionResume:\n");
+    printMsg("Session id: %d\n", session_id);
+    return;
+}
+
+wifi_error twt_init_handlers() {
     wifi_error ret = WIFI_SUCCESS;
-    TwtCallbackHandler handlers;
-    memset(&handlers, 0, sizeof(handlers));
-    handlers.EventTwtDeviceNotify = OnTwtNotify;
-    handlers.EventTwtSetupResponse = OnTwtSetupResponse;
-    handlers.EventTwtTeardownCompletion = OnTwtTearDownCompletion;
-    handlers.EventTwtInfoFrameReceived = OnTwtInfoFrameReceived;
-    ret = twt_register_handler(wlan0Handle , handlers);
-    printMsg("%s: ret = %d\n", __FUNCTION__, ret);
+    wifi_twt_events events;
+
+    memset(&events, 0, sizeof(events));
+    events.on_twt_failure = OnTwtSessionFailure;
+    events.on_twt_session_create = OnTwtSessionCreate;
+    events.on_twt_session_update = OnTwtSessionUpdate;
+    events.on_twt_session_teardown = OnTwtSessionTearDown;
+    events.on_twt_session_stats = OnTwtSessionStats;
+    events.on_twt_session_suspend = OnTwtSessionSuspend;
+    events.on_twt_session_resume = OnTwtSessionResume;
+
+    ret = wifi_twt_register_events(wlan0Handle, events);
+    ALOGD("%s: ret = %d\n", __FUNCTION__, ret);
     return ret;
 }
 
@@ -6587,8 +6742,7 @@ void twtEventCheck(void) {
         return;
     }
 
-    twtCmdId = getNewCmdId();
-    ret = twt_event_check_request(twtCmdId, wlan0Handle);
+    ret = twt_event_check_request(cmdId, wlan0Handle);
     if (ret != WIFI_SUCCESS) {
         printMsg("Failed to check the twt events: %d\n", ret);
         return;
@@ -10233,26 +10387,32 @@ int main(int argc, char *argv[]) {
         MultiStaSetUsecase(argv);
     } else if ((strcmp(argv[1], "-voip_mode") == 0) && (argc > 2)) {
         SetVoipMode(argv);
-    } else if (strcmp(argv[1], "-twt") == 0) {
+    } else if ((strcmp(argv[1], "-twt") == 0) && (argc > 2)) {
         if ((strcmp(argv[2], "-setup") == 0)) {
-            setupTwtRequest(argv);
+            setupTwtSession(argv);
         } else if ((strcmp(argv[2], "-teardown") == 0)) {
-            TeardownTwt(argv);
-        } else if ((strcmp(argv[2], "-info_frame") == 0)) {
-            InfoFrameTwt(argv);
+            TeardownTwtSession(argv);
+        } else if ((strcmp(argv[2], "-update") == 0)) {
+            UpdateTwtSession(argv);
+        } else if ((strcmp(argv[2], "-suspend") == 0)) {
+            SuspendTwtSession(argv);
+        } else if ((strcmp(argv[2], "-resume") == 0)) {
+            ResumeTwtSession(argv);
         } else if ((strcmp(argv[2], "-get_stats") == 0)) {
             GetTwtStats(argv);
+#ifdef NOT_YET
         } else if ((strcmp(argv[2], "-clear_stats") == 0)) {
             ClearTwtStats(argv);
+#endif /* NOT_YET */
         } else if ((strcmp(argv[2], "-event_chk") == 0)) {
             twtEventCheck();
         } else {
             printMsg("\n Unknown command\n");
             printTwtUsage();
-            return WIFI_SUCCESS;
+            goto cleanup;
         }
     } else if (strcmp(argv[1], "-get_capa_twt") == 0) {
-        getTWTCapability(argv);
+        getTWTCapability();
     } else if ((strcmp(argv[1], "-dtim_multiplier") == 0) && (argc > 2)) {
         int dtim_multiplier = (atoi)(argv[2]);
         hal_fn.wifi_set_dtim_config(wlan0Handle, dtim_multiplier);

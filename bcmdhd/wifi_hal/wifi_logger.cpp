@@ -50,7 +50,6 @@
 #include "brcm_version.h"
 #define WIFI_HAL_EVENT_SOCK_PORT     645
 
-#define ARRAYSIZE(a)	(u8)(sizeof(a) / sizeof(a[0]))
 typedef enum {
     LOGGER_START_LOGGING = ANDROID_NL80211_SUBCMD_DEBUG_RANGE_START,
     LOGGER_TRIGGER_MEM_DUMP,

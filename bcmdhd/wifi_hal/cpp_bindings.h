@@ -77,6 +77,10 @@ public:
         return mAttributes[attribute];
     }
 
+    int get_s8(int attribute) {
+        return mAttributes[attribute] ? nla_get_s8(mAttributes[attribute]) : 0;
+    }
+
     uint8_t get_u8(int attribute) {
         return mAttributes[attribute] ? nla_get_u8(mAttributes[attribute]) : 0;
     }
@@ -130,6 +134,9 @@ public:
     }
     uint8_t get_u8() {
         return nla_get_u8(pos);
+    }
+    int get_s8() {
+        return nla_get_s8(pos);
     }
     uint16_t get_u16() {
         return nla_get_u16(pos);
