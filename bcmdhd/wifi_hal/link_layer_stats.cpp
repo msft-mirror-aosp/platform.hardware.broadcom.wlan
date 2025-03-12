@@ -414,7 +414,8 @@ private:
             }
 
             num_rate = peer_info_ptr->num_rate;
-            if ((num_rate == NUM_RATE) || (num_rate == NUM_RATE_NON_BE)) {
+            /* boundary check as per max supported num rate */
+            if (num_rate <= MAX_NUM_RATE) {
                 all_rate_stats_per_peer_per_link_size = num_rate * sizeof(wifi_rate_stat);
                 if (num_rate && (*data_rem_len >= all_rate_stats_per_peer_per_link_size)) {
                     ret = convertToExternalRatestatsStructure(data, offset, outbuf, data_rem_len,
